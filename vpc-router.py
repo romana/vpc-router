@@ -32,10 +32,18 @@ CONF = {
 
 
 class VpcRouteSetError(Exception):
+    """
+    Exception during route setting operations.
+
+    """
     pass
 
 
 class ArgsError(Exception):
+    """
+    Missing or malformed parameters and arguments.
+
+    """
     pass
 
 
