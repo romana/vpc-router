@@ -20,6 +20,7 @@ limitations under the License.
 import sys
 import netaddr
 import boto.vpc
+import argparse
 
 # The AWS connection
 CON  = None
@@ -34,22 +35,8 @@ class VpcRouteSetError(Exception):
     pass
 
 
-def _usage():
-    """
-    Print usage information.
-
-    """
-    print '''Usage:
-
-    $ ./vr.py <vpc-id> [add|del|show] <dst-cidr> <router-ip>
-
-        vpc-id:       The AWS ID of the VPC.
-        add|del|show: Specify whether a route should be added or deleted,
-                      or whether it should just show the instance and ENI
-                      if the route already exists.
-        dst-cidr:     The destination CIDR, for which you want to set a route.
-        router-ip:    The IP address of the instance acting as router.
-    '''
+class ArgsError(Exception):
+    pass
 
 
 def _ip_check(ip, netmask_expected=False):
@@ -67,35 +54,50 @@ def parse_args():
     """
     Parse command line arguments and fill relevant values into CONF dict.
 
+    Also performs basic sanity checking on some arguments.
+
     """
-    if len(sys.argv) > 1:
-        if "-h" in sys.argv or "--help" in sys.argv:
-            _usage()
-            sys.exit()
-        if len(sys.argv) != 5:
-            _usage()
-            raise VpcRouteSetError("Need exactly 4 parameters.")
-        CONF['vpc_id']    = sys.argv[1]
-        CONF['command']   = sys.argv[2]
-        CONF['dst_cidr']  = sys.argv[3]
-        CONF['router_ip'] = sys.argv[4]
+    parser = argparse.ArgumentParser(
+        description="VPC router: Set routes in VPC route table")
+    parser.add_argument('-v', '--vpc', dest="vpc_id",
+                        help="the ID of the VPC in which to operate")
+    parser.add_argument('-c', '--cmd', default="show", dest="command",
+                        help="either 'show', 'add' or 'del' (default: 'show')")
+    parser.add_argument('-r', '--region', dest="region",
+                        help="the AWS region of the VPC")
+    parser.add_argument('-C', '--CIDR', dest="dst_cidr",
+                        help="the destination CIDR of the route")
+    parser.add_argument('-i', '--ip', dest="router_ip",
+                        help="the IP address of the routing instance")
+    args = parser.parse_args()
+    CONF['vpc_id']    = args.vpc_id
+    CONF['command']   = args.command
+    CONF['dst_cidr']  = args.dst_cidr
+    CONF['router_ip'] = args.router_ip
+
+    try:
+        if CONF['command'] not in [ 'add', 'del', 'show' ]:
+            raise ArgsError("Only commands 'add', 'del' or 'show' are "
+                            "allowed (not '%s')." % CONF['command'])
+        if not CONF['dst_cidr']:
+            raise ArgsError("Destination CIDR argument missing.")
+        if not CONF['router_ip']:
+            raise ArgsError("Router IP address argument missing.")
+
         cidr_check_passed = False
         try:
             _ip_check(CONF['dst_cidr'], netmask_expected=True)
             cidr_check_passed = True
             _ip_check(CONF['router_ip'])
         except netaddr.core.AddrFormatError:
-            _usage()
             if cidr_check_passed:
-                raise VpcRouteSetError("Format error for router IP address.")
+                raise ArgsError("Format error for router IP address.")
             else:
-                raise VpcRouteSetError("Format error for destination CIDR.")
-        if CONF['command'] not in [ 'add', 'del', 'show' ]:
-            _usage()
-            raise VpcRouteSetError("Only commands 'add', 'del' or 'show' are "
-                                   "allowed (not '%s')." % CONF['command'])
-    else:
-        CONF['vpc_id'] = None
+                raise ArgsError("Format error for destination CIDR.")
+
+    except ArgsError as e:
+        parser.print_help()
+        raise e
 
 
 def connect_to_region():
@@ -168,7 +170,8 @@ def find_instance_and_emi_by_ip(ip, vpc_info):
                 print "Found router instance: (%s, %s)" % \
                     (instance.id, eni.id)
                 return instance, eni
-    raise VpcRouteSetError("Could not find instance/emi for '%s'." % ip)
+    raise VpcRouteSetError("Could not find instance/emi for '%s' "
+                           "in VPC '%s'." % (ip, vpc_info['vpc'].id))
 
 
 def manage_route(vpc_info, instance, eni):
@@ -234,10 +237,12 @@ if __name__ == "__main__":
                                                     vpc_info)
         manage_route(vpc_info, instance, eni)
         sys.exit(0)
+    except ArgsError as e:
+        print "\n*** Error: %s\n" % e.message
     except VpcRouteSetError as e:
-        print "*** Error: %s\n" % e.message
+        print "\n*** Error: %s\n" % e.message
     except boto.exception.EC2ResponseError as e:
-        print "*** Error AWS API: %s\n" % e.message
+        print "\n*** Error AWS API: %s\n" % e.message
     sys.exit(1)
 
 
