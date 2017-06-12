@@ -29,7 +29,8 @@ from bottle import route, run, request, response
 # Some parameters needed for daemon mode operation
 REGION_NAME = None
 VPC_ID      = None
-PORT        = None
+SERVER_PORT = None
+SERVER_ADDR = None
 
 
 class _Exception(Exception):
@@ -84,10 +85,14 @@ def parse_args():
                         help="start as daemon, wait for commands via network")
     parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
                         help="the ID of the VPC in which to operate")
+    parser.add_argument('-a', '--address', dest="listen_addr",
+                        default="localhost",
+                        help="address to listen on for commands "
+                             "(only daemon mode)")
     parser.add_argument('-p', '--port', dest="listen_port", default="33289",
                         type=int,
                         help="port to listen on for commands "
-                             "(only in daemon mode)")
+                             "(only daemon mode)")
     parser.add_argument('-c', '--cmd', dest="command",
                         help="either 'show', 'add' or 'del' (default: 'show')")
     parser.add_argument('-r', '--region', dest="region",
@@ -105,6 +110,7 @@ def parse_args():
     conf['router_ip']   = args.router_ip
     conf['daemon']      = args.daemon
     conf['port']        = args.listen_port
+    conf['addr']        = args.listen_addr
 
     # Sanity checking of arguments
     try:
@@ -113,6 +119,13 @@ def parse_args():
             if not 0 < conf['port'] < 65535:
                 raise ArgsError("Invalid listen port '%d' for daemon mode." %
                                 conf['port'])
+            if not conf['addr'] == "localhost":
+                # maybe a proper address was specified?
+                try:
+                    _ip_check(conf['addr'])
+                except netaddr.core.AddrFormatError:
+                    raise ArgsError("Format error for server listen address.")
+
         else:
             # Sanity check if started with command line arguments
             if conf['command'] not in [ 'add', 'del', 'show' ]:
@@ -395,7 +408,7 @@ def start_as_daemon():
     Offers a REST 'inspired' interface.
 
     """
-    run(host="localhost", port=PORT, debug=True)
+    run(host=SERVER_ADDR, port=SERVER_PORT, debug=True)
 
 
 if __name__ == "__main__":
@@ -404,7 +417,8 @@ if __name__ == "__main__":
         if conf['daemon']:
             REGION_NAME = conf['region_name']
             VPC_ID      = conf['vpc_id']
-            PORT        = conf['port']
+            SERVER_PORT = conf['port']
+            SERVER_ADDR = conf['addr']
             start_as_daemon()
         else:
             # One off run from the command line

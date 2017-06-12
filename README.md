@@ -72,6 +72,10 @@ with the POST, GET or DELETE message, respectively.
 By default, vpc-router uses port 33289. However, a different port number can be
 specified with the '-p' option.
 
+By default, vpc-router listens on the loopback address for incoming requests.
+To specify other addresses, use the '-a' options. Specifically, use
+'-a 0.0.0.0' to listen on any interface and address.
+
 ### Examples
 
 *Setting a route ('POST')*:
@@ -85,4 +89,15 @@ specified with the '-p' option.
 *Deleting an existing route ('DELETE'):*
 
     $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
+
+
+## TODO
+
+* When running on an EC2 instance and no VPC or region is specified,
+auto-detect the VPC and region of that instance.
+* Support for BGP listener: Allow vpc-router to act as BGP peer and receive
+route announcements via BGP.
+* Fully developed daemon mode.
+* Logging.
+
 
