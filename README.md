@@ -28,7 +28,7 @@ use the '-h' or '--help' options for a brief overview of the available options.
 
 There are three commands, which are understood by vpc-router:
 
-* add: Create a new route to for the specified CIDR and target EC2 instance IP
+* add: Create a new route for the specified CIDR and target EC2 instance IP
 address. This command will add the route to all route tables of the specified
 VPC.
 * show: Produce output that shows whether the route already exists on any of
@@ -46,15 +46,18 @@ router.
 
 This operation is idempotent.
 
+*Note: An 'add' command for an existing route with the same CIDR, but different
+router IP address, will update the route to the new IP address.*
+
 **Checking whether a route exists ('show' command):**
 
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16 --ip 10.33.20.142
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16
 
 If the specified route doesn't exist, the exit code will be '1'.
 
 **Deleting an existing route ('del' command):**
 
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16 --ip 10.33.20.142
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16
 
 If the specified route doesn't exist, the exit code will be '1'.
 
@@ -82,13 +85,16 @@ To specify other addresses, use the '-a' option. Specifically, use
 
     $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route" -d '{"dst_cidr" : "10.55.0.0/16", "router_ip" : "10.33.20.142"}'
 
+*Note: An 'add' command for an existing route with the same CIDR, but different
+router IP address, will update the route to the new IP address.*
+
 **Checking whether a route exists ('GET'):**
 
-    $ curl "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
+    $ curl "http://localhost:33289/route?dst_cidr=10.55.0.0/16"
 
 **Deleting an existing route ('DELETE'):**
 
-    $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
+    $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16"
 
 
 ## TODO
@@ -97,6 +103,9 @@ To specify other addresses, use the '-a' option. Specifically, use
 auto-detect the VPC and region of that instance.
 * Support for BGP listener: Allow vpc-router to act as BGP peer and receive
 route announcements via BGP.
+* Access etcd for routing spec.
+* In conjunction with previous point: Detect failure and update route to
+backup.
 * Fully developed daemon mode.
 * Logging.
 

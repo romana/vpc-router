@@ -101,7 +101,7 @@ def parse_args():
     parser.add_argument('-C', '--CIDR', dest="dst_cidr",
                         help="the destination CIDR of the route")
     parser.add_argument('-i', '--ip', dest="router_ip",
-                        help="the IP address of the routing instance")
+                        help="IP address of router instance (only for 'add')")
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
@@ -133,14 +133,20 @@ def parse_args():
                                 "allowed (not '%s')." % conf['command'])
             if not conf['dst_cidr']:
                 raise ArgsError("Destination CIDR argument missing.")
-            if not conf['router_ip']:
-                raise ArgsError("Router IP address argument missing.")
+            if conf['command'] == 'add':
+                if not conf['router_ip']:
+                    raise ArgsError("Router IP address argument missing.")
+            else:
+                if conf['router_ip']:
+                    raise ArgsError("Router IP address only allowed for "
+                                    "'add'.")
 
             cidr_check_passed = False
             try:
                 _ip_check(conf['dst_cidr'], netmask_expected=True)
                 cidr_check_passed = True
-                _ip_check(conf['router_ip'])
+                if conf['router_ip']:
+                    _ip_check(conf['router_ip'])
             except netaddr.core.AddrFormatError:
                 if cidr_check_passed:
                     raise ArgsError("Format error for router IP address.")
@@ -237,8 +243,8 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
     """
     Set, delete or show the route to the specified instance.
 
-    The specific command, destination CIDR and IP address are contained
-    in the config.
+    For show and delete only the CIDR is needed (instance, eni and ip can
+    be None).
 
     For now, we set the same route in all route tables.
 
@@ -255,12 +261,16 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
         "del"  : "Deleting"
     }
     if not daemon:
-        msg.append("%s route: %s -> %s (%s, %s)" %
-                   (cmd_str[cmd], cidr, ip, instance.id, eni.id))
+        if cmd == "add":
+            msg.append("%s route: %s -> %s (%s, %s)" %
+                       (cmd_str[cmd], cidr, ip, instance.id, eni.id))
+        else:
+            msg.append("%s route: %s" % (cmd_str[cmd], cidr))
+
     for rt in vpc_info['route_tables']:
         found_in_rt = False
         for r in rt.routes:
-            if r.interface_id == eni.id and r.destination_cidr_block == cidr:
+            if r.destination_cidr_block == cidr:
                 found_in_rt = True
                 if cmd == "show":
                     msg.append("--- route exists in RT '%s'" % rt.id)
@@ -269,7 +279,19 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
                     con.delete_route(route_table_id         = rt.id,
                                      destination_cidr_block = cidr)
                 elif cmd == "add":
-                    msg.append("--- route exists already in RT '%s'" % rt.id)
+                    if r.interface_id == eni.id:
+                        msg.append("--- route exists already in RT '%s'" %
+                                   rt.id)
+                    else:
+                        msg.append("--- route exists already in RT '%s', "
+                                   "but with different destination. "
+                                   "Updating." % rt.id)
+                        con.replace_route(route_table_id        = rt.id,
+                                         destination_cidr_block = cidr,
+                                         instance_id            = instance.id,
+                                         interface_id           = eni.id)
+                break
+
         if not found_in_rt:
             if cmd in [ 'show', 'del' ]:
                 msg.append("--- did not find route in RT '%s'" % rt.id)
@@ -295,7 +317,11 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     """
     con           = connect_to_region(region_name)
     vpc_info      = get_vpc_overview(con, vpc_id, region_name)
-    instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip, daemon)
+    if router_ip:
+        instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip,
+                                                    daemon)
+    else:
+        instance = eni = None
     msgs, found   = manage_route(con, vpc_info, instance, eni,
                                  cmd, router_ip, dst_cidr, daemon)
     con.close()
@@ -313,7 +339,8 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
 
 def _get_route_params(req, from_body=False):
     """
-    Extracts and checks dst_cidr and router_ip parameters from request URL.
+    Extracts and checks dst_cidr and optional router_ip parameters from
+    request URL.
 
     """
     if from_body:
@@ -326,10 +353,11 @@ def _get_route_params(req, from_body=False):
         params = request.query
 
     dst_cidr  = params['dst_cidr']
-    router_ip = params['router_ip']
-
     _ip_check(dst_cidr, netmask_expected=True)
-    _ip_check(router_ip)
+
+    router_ip = params.get('router_ip')
+    if router_ip:
+        _ip_check(router_ip)
 
     return dst_cidr, router_ip
 
@@ -356,23 +384,31 @@ def handle_api_request():
         { "dst_cidr" : "10.55.0.0/16", "router_ip" : "10.33.20.142" }
 
     """
-    cmd = { "GET"    : "show",
+    cmd = {
+            "GET"    : "show",
             "DELETE" : "del",
             "POST"   : "add"
-    }[request.method]
+          }[request.method]
 
     try:
 
         from_body = (cmd == "add")  # Flag is True for POST
         dst_cidr, router_ip = _get_route_params(request, from_body)
 
+        if cmd == "add":
+            if not router_ip:
+                raise KeyError("router_ip")
+        else:
+            if router_ip:
+                raise ArgsError("Illegal parameter 'router_ip' for operation")
+
         msg, found = handle_request(REGION_NAME, VPC_ID,
                                     cmd, router_ip, dst_cidr, True)
-
         if found:
             response.status   = 200
         else:
             response.status   = 404
+
         response.content_type = 'application/json'
         return json.dumps(msg)
 
