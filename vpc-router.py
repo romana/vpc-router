@@ -229,8 +229,13 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
 
     For now, we set the same route in all route tables.
 
+    Returns any accumulated messages in a list of strings, as well as a
+    'found' flag. The found flag will be 'false' if a show or delete didn't
+    find the specified routes. If the add failes, an exception is thrown.
+
     """
-    msg = []
+    msg     = []
+    found   = True
     cmd_str = {
         "show" : "Searching for",
         "add"  : "Adding",
@@ -255,32 +260,38 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
         if not found_in_rt:
             if cmd in [ 'show', 'del' ]:
                 msg.append("--- did not find route in RT '%s'" % rt.id)
+                found = False
             elif cmd == "add":
                 msg.append("--- adding route in RT '%s'" % rt.id)
                 con.create_route(route_table_id         = rt.id,
                                  destination_cidr_block = cidr,
                                  instance_id            = instance.id,
                                  interface_id           = eni.id)
-    return msg
+
+    return msg, found
 
 
 def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     """
     Connect to region and handle a route add/del/show request.
 
+    Returns accumulated messages in a list, as well as a 'found' flag that
+    indicates whether the specified routes for a show or del command were
+    found.
+
     """
     con           = connect_to_region(region_name)
     vpc_info      = get_vpc_overview(con, vpc_id, region_name)
     instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip, daemon)
-    msgs          = manage_route(con, vpc_info, instance, eni,
+    msgs, found   = manage_route(con, vpc_info, instance, eni,
                                  cmd, router_ip, dst_cidr, daemon)
     con.close()
 
     if not daemon:
         for m in msgs:
             print m
-    else:
-        return msgs
+
+    return msgs, found
 
 
 #
@@ -342,10 +353,13 @@ def handle_api_request():
         from_body = (cmd == "add")  # Flag is True for POST
         dst_cidr, router_ip = _get_route_params(request, from_body)
 
-        msg = handle_request(REGION_NAME, VPC_ID,
-                             cmd, router_ip, dst_cidr, True)
+        msg, found = handle_request(REGION_NAME, VPC_ID,
+                                    cmd, router_ip, dst_cidr, True)
 
-        response.status       = 200
+        if found:
+            response.status   = 200
+        else:
+            response.status   = 404
         response.content_type = 'application/json'
         return json.dumps(msg)
 
@@ -364,6 +378,14 @@ def handle_api_request():
     except VpcRouteSetError as e:
         response.status = 500
         return e.message
+
+    except boto.exception.StandardError as e:
+        response.status = 500
+        return "*** Error: AWS API: " + e.message
+
+    except boto.exception.NoAuthHandlerFound:
+        response.status = 500
+        return "*** Error: AWS API: vpc-router could not authenticate"
 
 
 def start_as_daemon():
@@ -386,11 +408,13 @@ if __name__ == "__main__":
             start_as_daemon()
         else:
             # One off run from the command line
-            handle_request(conf['region_name'], conf['vpc_id'],
-                           conf['command'],
-                           conf['router_ip'], conf['dst_cidr'],
-                           conf['daemon'])
-            sys.exit(0)
+            msg, found = handle_request(
+                conf['region_name'], conf['vpc_id'], conf['command'],
+                conf['router_ip'], conf['dst_cidr'], conf['daemon'])
+            if found:
+                sys.exit(0)
+            else:
+                sys.exit(1)
     except ArgsError as e:
         print "\n*** Error: %s\n" % e.message
     except VpcRouteSetError as e:
