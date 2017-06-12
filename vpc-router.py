@@ -82,20 +82,20 @@ def parse_args():
         description="VPC router: Set routes in VPC route table")
     parser.add_argument('-d', '--daemon', dest='daemon', action='store_true',
                         help="start as daemon, wait for commands via network")
-    parser.add_argument('-v', '--vpc', dest="vpc_id",
+    parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
                         help="the ID of the VPC in which to operate")
     parser.add_argument('-p', '--port', dest="listen_port", default="33289",
                         type=int,
                         help="port to listen on for commands "
                              "(only in daemon mode)")
-    parser.add_argument('-c', '--cmd', dest="command", required=True,
+    parser.add_argument('-c', '--cmd', dest="command",
                         help="either 'show', 'add' or 'del' (default: 'show')")
     parser.add_argument('-r', '--region', dest="region",
                         default="ap-southeast-2",
                         help="the AWS region of the VPC")
-    parser.add_argument('-C', '--CIDR', dest="dst_cidr", required=True,
+    parser.add_argument('-C', '--CIDR', dest="dst_cidr",
                         help="the destination CIDR of the route")
-    parser.add_argument('-i', '--ip', dest="router_ip", required=True,
+    parser.add_argument('-i', '--ip', dest="router_ip",
                         help="the IP address of the routing instance")
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
