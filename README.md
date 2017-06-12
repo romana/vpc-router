@@ -37,7 +37,7 @@ the route tables of the VPC.
 
 ### Examples
 
-*Setting a route ('add' command)*:
+**Setting a route ('add' command)**:
 
 The 'ip' option is the IP address of the EC2 instance that should act as
 router.
@@ -46,13 +46,13 @@ router.
 
 This operation is idempotent.
 
-*Checking whether a route exists ('show' command):*
+**Checking whether a route exists ('show' command):**
 
     $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16 --ip 10.33.20.142
 
 If the specified route doesn't exist, the exit code will be '1'.
 
-*Deleting an existing route ('del' command):*
+**Deleting an existing route ('del' command):**
 
     $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16 --ip 10.33.20.142
 
@@ -78,15 +78,15 @@ To specify other addresses, use the '-a' options. Specifically, use
 
 ### Examples
 
-*Setting a route ('POST')*:
+**Setting a route ('POST')**:
 
     $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route" -d '{"dst_cidr" : "10.55.0.0/16", "router_ip" : "10.33.20.142"}'
 
-*Checking whether a route exists ('GET'):*
+**Checking whether a route exists ('GET'):**
 
     $ curl "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
 
-*Deleting an existing route ('DELETE'):*
+**Deleting an existing route ('DELETE'):**
 
     $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
 
