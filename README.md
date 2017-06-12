@@ -35,7 +35,7 @@ VPC.
 the route tables of the VPC.
 * del: Delete the specified route from all route tables of the specified VPC.
 
-### Examples
+### Examples for interactive command line mode
 
 **Setting a route ('add' command)**:
 
@@ -73,10 +73,10 @@ By default, vpc-router uses port 33289. However, a different port number can be
 specified with the '-p' option.
 
 By default, vpc-router listens on the loopback address for incoming requests.
-To specify other addresses, use the '-a' options. Specifically, use
+To specify other addresses, use the '-a' option. Specifically, use
 '-a 0.0.0.0' to listen on any interface and address.
 
-### Examples
+### Examples for API requests in daemon mode
 
 **Setting a route ('POST')**:
 
