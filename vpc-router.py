@@ -18,13 +18,31 @@ limitations under the License.
 """
 
 import sys
+import json
 import netaddr
 import boto.vpc
 import argparse
 
+from bottle import route, run, request, response
 
 
-class VpcRouteSetError(Exception):
+# Some parameters needed for daemon mode operation
+REGION_NAME = None
+VPC_ID      = None
+PORT        = None
+
+
+class _Exception(Exception):
+    """
+    Base class for my exceptions, which allows me to use the message attribute.
+
+    """
+    def __init__(self, message, *args):
+        self.message = message
+        super(_Exception, self).__init__(message, *args)
+
+
+class VpcRouteSetError(_Exception):
     """
     Exception during route setting operations.
 
@@ -32,7 +50,7 @@ class VpcRouteSetError(Exception):
     pass
 
 
-class ArgsError(Exception):
+class ArgsError(_Exception):
     """
     Missing or malformed parameters and arguments.
 
@@ -172,9 +190,9 @@ def get_vpc_overview(con, vpc_id, region_name):
     # Now find the subnets, route tables and instances within this VPC
     d['subnets']      = con.get_all_subnets(filters=vpc_filter)
     d['route_tables'] = con.get_all_route_tables(filters=vpc_filter)
-    reservations      = con.get_all_instances(filters=vpc_filter)
-    d['instances']    = []  # get_all_instances returns reservations...
-    for r in reservations:  # ... a reservation may have multiple instances
+    reservations      = con.get_all_reservations(filters=vpc_filter)
+    d['instances']    = []
+    for r in reservations:  # a reservation may have multiple instances
         d['instances'].extend(r.instances)
 
     # TODO: Need a way to find which route table we should focus on.
@@ -182,7 +200,7 @@ def get_vpc_overview(con, vpc_id, region_name):
     return d
 
 
-def find_instance_and_emi_by_ip(vpc_info, ip):
+def find_instance_and_emi_by_ip(vpc_info, ip, daemon):
     """
     Given a specific IP address, find the EC2 instance and ENI.
 
@@ -194,14 +212,15 @@ def find_instance_and_emi_by_ip(vpc_info, ip):
     for instance in vpc_info['instances']:
         for eni in instance.interfaces:
             if eni.private_ip_address == ip:
-                print "Found router instance: (%s, %s)" % \
-                    (instance.id, eni.id)
+                if not daemon:
+                    print "Found router instance: (%s, %s)" % \
+                        (instance.id, eni.id)
                 return instance, eni
     raise VpcRouteSetError("Could not find instance/emi for '%s' "
                            "in VPC '%s'." % (ip, vpc_info['vpc'].id))
 
 
-def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr):
+def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
     """
     Set, delete or show the route to the specified instance.
 
@@ -211,64 +230,167 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr):
     For now, we set the same route in all route tables.
 
     """
+    msg = []
     cmd_str = {
         "show" : "Searching for",
         "add"  : "Adding",
         "del"  : "Deleting"
     }
-    print "%s route: %s -> %s (%s, %s)" % \
-        (cmd_str[cmd], cidr, ip, instance.id, eni.id)
+    if not daemon:
+        msg.append("%s route: %s -> %s (%s, %s)" %
+                   (cmd_str[cmd], cidr, ip, instance.id, eni.id))
     for rt in vpc_info['route_tables']:
         found_in_rt = False
-        """
-        for r in rt.routes:
-            print "-"*20
-            print r.destination_cidr_block
-            print r.gateway_id
-            print r.instance_id
-            print r.interface_id
-            print r.origin
-        """
         for r in rt.routes:
             if r.interface_id == eni.id and r.destination_cidr_block == cidr:
                 found_in_rt = True
                 if cmd == "show":
-                    print "--- route exists in RT '%s'" % rt.id
+                    msg.append("--- route exists in RT '%s'" % rt.id)
                 elif cmd == "del":
-                    print "--- deleting route in RT '%s'" % rt.id
+                    msg.append("--- deleting route in RT '%s'" % rt.id)
                     con.delete_route(route_table_id         = rt.id,
                                      destination_cidr_block = cidr)
                 elif cmd == "add":
-                    print "--- route exists already in RT '%s'" % rt.id
+                    msg.append("--- route exists already in RT '%s'" % rt.id)
         if not found_in_rt:
             if cmd in [ 'show', 'del' ]:
-                print "--- did not find route in RT '%s'" % rt.id
+                msg.append("--- did not find route in RT '%s'" % rt.id)
             elif cmd == "add":
-                print "--- adding route in RT '%s'" % rt.id
+                msg.append("--- adding route in RT '%s'" % rt.id)
                 con.create_route(route_table_id         = rt.id,
                                  destination_cidr_block = cidr,
                                  instance_id            = instance.id,
                                  interface_id           = eni.id)
+    return msg
 
 
-def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
+def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     """
-    Connect to region and handle a request.
+    Connect to region and handle a route add/del/show request.
 
     """
     con           = connect_to_region(region_name)
     vpc_info      = get_vpc_overview(con, vpc_id, region_name)
-    instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
-    manage_route(con, vpc_info, instance, eni, cmd, router_ip, dst_cidr)
+    instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip, daemon)
+    msgs          = manage_route(con, vpc_info, instance, eni,
+                                 cmd, router_ip, dst_cidr, daemon)
     con.close()
+
+    if not daemon:
+        for m in msgs:
+            print m
+    else:
+        return msgs
+
+
+#
+# Functions for request handling in daemon mode
+#
+
+def _get_route_params(req, from_body=False):
+    """
+    Extracts and checks dst_cidr and router_ip parameters from request URL.
+
+    """
+    if from_body:
+        try:
+            params = json.loads(req.body.read())
+        except Exception:
+            raise ArgsError("Malformed request body")
+
+    else:
+        params = request.query
+
+    dst_cidr  = params['dst_cidr']
+    router_ip = params['router_ip']
+
+    _ip_check(dst_cidr, netmask_expected=True)
+    _ip_check(router_ip)
+
+    return dst_cidr, router_ip
+
+
+@route('/route', method='GET')
+@route('/route', method='DELETE')
+@route('/route', method='POST')
+def handle_api_request():
+    """
+    Show, add or delete specified route.
+
+    For GET and DELETE requests the URL the parameters 'dst_cidr' and
+    'router_ip' need to be defined.
+
+    For example:
+
+        ..../route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142
+
+    For a POST request those parameters need to be contained in the request
+    body as JSON.
+
+    For example:
+
+        { "dst_cidr" : "10.55.0.0/16", "router_ip" : "10.33.20.142" }
+
+    """
+    cmd = { "GET"    : "show",
+            "DELETE" : "del",
+            "POST"   : "add"
+    }[request.method]
+
+    try:
+
+        from_body = (cmd == "add")  # Flag is True for POST
+        dst_cidr, router_ip = _get_route_params(request, from_body)
+
+        msg = handle_request(REGION_NAME, VPC_ID,
+                             cmd, router_ip, dst_cidr, True)
+
+        response.status       = 200
+        response.content_type = 'application/json'
+        return json.dumps(msg)
+
+    except KeyError as e:
+        response.status = 400
+        return "Missing parameter: '%s'" % e.message
+
+    except netaddr.core.AddrFormatError:
+        response.status = 400
+        return "Format error for IP address or mask"
+
+    except ArgsError as e:
+        response.status = 400
+        return e.message
+
+    except VpcRouteSetError as e:
+        response.status = 500
+        return e.message
+
+
+def start_as_daemon():
+    """
+    Start the VPC route setter as daemon that listens for commands on port.
+
+    Offers a REST 'inspired' interface.
+
+    """
+    run(host="localhost", port=PORT, debug=True)
 
 
 if __name__ == "__main__":
     try:
         conf = parse_args()
-        handle_request(conf['region_name'], conf['vpc_id'],
-                       conf['command'], conf['router_ip'], conf['dst_cidr'])
-        sys.exit(0)
+        if conf['daemon']:
+            REGION_NAME = conf['region_name']
+            VPC_ID      = conf['vpc_id']
+            PORT        = conf['port']
+            start_as_daemon()
+        else:
+            # One off run from the command line
+            handle_request(conf['region_name'], conf['vpc_id'],
+                           conf['command'],
+                           conf['router_ip'], conf['dst_cidr'],
+                           conf['daemon'])
+            sys.exit(0)
     except ArgsError as e:
         print "\n*** Error: %s\n" % e.message
     except VpcRouteSetError as e:
