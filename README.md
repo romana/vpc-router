@@ -26,30 +26,48 @@ install the required libraries:
 When using vpc-router from the command line as an interactive utility, you can
 use the '-h' or '--help' options for a brief overview of the available options.
 
+There are three commands, which are understood by vpc-router:
+
+* add: Create a new route to for the specified CIDR and target EC2 instance IP
+address. This command will add the route to all route tables of the specified
+VPC.
+* show: Produce output that shows whether the route already exists on any of
+the route tables of the VPC.
+* del: Delete the specified route from all route tables of the specified VPC.
+
 ### Examples
 
-*Setting a route*
+*Setting a route ('add' command):
 
 The 'ip' option is the IP address of the EC2 instance that should act as
 router.
 
-    $ ./vpc-router.py -v vpc-350d6a51 -c add --CIDR 10.55.0.0/16 --ip 10.33.20.142
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c add --CIDR 10.55.0.0/16 --ip 10.33.20.142
 
 This operation is idempotent.
 
-*Checking whether a route exists*
+*Checking whether a route exists ('show' command):*
 
-    $ ./vpc-router.py -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16 --ip 10.33.20.142
-
-If the specified route doesn't exist, the exit code will be '1'.
-
-*Deleting an existing route*
-
-    $ ./vpc-router.py -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16 --ip 10.33.20.142
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16 --ip 10.33.20.142
 
 If the specified route doesn't exist, the exit code will be '1'.
 
+*Deleting an existing route ('del' command):*
 
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16 --ip 10.33.20.142
+
+If the specified route doesn't exist, the exit code will be '1'.
+
+
+## Server mode: Using vpc-router as a daemon
+
+To use vpc-router as a permanently running daemon, simply specify the region,
+VPC ID as well as the '-d' flag:
+
+    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -d
+
+You can then perform the 'add', 'show' and 'del' commands by posting requests
+with the POST, GET or DELETE message, respectively.
 
 
 
