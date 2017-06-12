@@ -37,7 +37,7 @@ the route tables of the VPC.
 
 ### Examples
 
-*Setting a route ('add' command):
+*Setting a route ('add' command)*:
 
 The 'ip' option is the IP address of the EC2 instance that should act as
 router.
@@ -69,6 +69,20 @@ VPC ID as well as the '-d' flag:
 You can then perform the 'add', 'show' and 'del' commands by posting requests
 with the POST, GET or DELETE message, respectively.
 
+By default, vpc-router uses port 33289. However, a different port number can be
+specified with the '-p' option.
 
+### Examples
 
+*Setting a route ('POST')*:
+
+    $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route" -d '{"dst_cidr" : "10.55.0.0/16", "router_ip" : "10.33.20.142"}'
+
+*Checking whether a route exists ('GET'):*
+
+    $ curl "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
+
+*Deleting an existing route ('DELETE'):*
+
+    $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16&router_ip=10.33.20.142"
 
