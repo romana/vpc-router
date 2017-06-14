@@ -1,0 +1,13 @@
+
+Testing
+=======
+Unit tests are contained in the tests/ directory. To run all of them, use:
+
+    $ python -m unittest discover
+
+To just run specific tests, use:
+
+    $ python -m unittest tests.test_utils
+
+
+
