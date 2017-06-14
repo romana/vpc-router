@@ -77,6 +77,11 @@ def get_vpc_overview(con, vpc_id, region_name):
     for r in reservations:  # a reservation may have multiple instances
         d['instances'].extend(r.instances)
 
+    # Maintain a quick instance lookup for convenience
+    d['instance_by_id'] = {}
+    for i in d['instances']:
+         d['instance_by_id'][i.id] = i
+
     # TODO: Need a way to find which route table we should focus on.
 
     return d
@@ -94,9 +99,6 @@ def find_instance_and_emi_by_ip(vpc_info, ip, daemon):
     for instance in vpc_info['instances']:
         for eni in instance.interfaces:
             if eni.private_ip_address == ip:
-                if not daemon:
-                    print "Found router instance: (%s, %s)" % \
-                        (instance.id, eni.id)
                 return instance, eni
     raise VpcRouteSetError("Could not find instance/emi for '%s' "
                            "in VPC '%s'." % (ip, vpc_info['vpc'].id))
@@ -124,27 +126,36 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
         "del"  : "Deleting"
     }
     if not daemon:
-        if cmd == "add":
-            msg.append("%s route: %s -> %s (%s, %s)" %
-                       (cmd_str[cmd], cidr, ip, instance.id, eni.id))
-        else:
-            msg.append("%s route: %s" % (cmd_str[cmd], cidr))
+        msg.append("%s route: %s" % (cmd_str[cmd], cidr))
 
     for rt in vpc_info['route_tables']:
         found_in_rt = False
         for r in rt.routes:
             if r.destination_cidr_block == cidr:
                 found_in_rt = True
-                if cmd == "show":
-                    msg.append("--- route exists in RT '%s'" % rt.id)
-                elif cmd == "del":
-                    msg.append("--- deleting route in RT '%s'" % rt.id)
-                    con.delete_route(route_table_id         = rt.id,
-                                     destination_cidr_block = cidr)
-                elif cmd == "add":
+                if not cmd == "add":
+                    instance = vpc_info['instance_by_id'][r.instance_id]
+                    ipaddr   = "(unknown)"
+                    for eni in instance.interfaces:
+                        if eni.id == r.interface_id:
+                            ipaddr = eni.private_ip_address
+                            break
+                    if cmd == "show":
+                        msg.append("--- route exists in RT '%s': "
+                                   "%s -> %s (%s, %s)" %
+                                   (rt.id, cidr, ipaddr, instance.id, eni.id))
+
+                    elif cmd == "del":
+                        msg.append("--- deleting route in RT '%s': "
+                                   "%s -> %s (%s, %s)" %
+                                   (rt.id, cidr, ipaddr, instance.id, eni.id))
+                        con.delete_route(route_table_id         = rt.id,
+                                         destination_cidr_block = cidr)
+                else:
                     if r.interface_id == eni.id:
-                        msg.append("--- route exists already in RT '%s'" %
-                                   rt.id)
+                        msg.append("--- route exists already in RT '%s': "
+                                   "%s -> %s (%s, %s)" %
+                                   (rt.id, cidr, ip, instance.id, eni.id))
                     else:
                         msg.append("--- route exists already in RT '%s', "
                                    "but with different destination. "
@@ -160,7 +171,9 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
                 msg.append("--- did not find route in RT '%s'" % rt.id)
                 found = False
             elif cmd == "add":
-                msg.append("--- adding route in RT '%s'" % rt.id)
+                msg.append("--- adding route in RT '%s'"
+                           "%s -> %s (%s, %s)" %
+                           (rt.id, cidr, ip, instance.id, eni.id))
                 con.create_route(route_table_id         = rt.id,
                                  destination_cidr_block = cidr,
                                  instance_id            = instance.id,
