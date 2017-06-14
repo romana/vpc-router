@@ -29,16 +29,16 @@ from watcher import start_daemon_as_watcher
 if __name__ == "__main__":
     try:
         conf = parse_args()
-        if conf['daemon']:
+        if conf['mode'] == "http":
             start_daemon_with_http_api(conf['addr'], conf['port'],
                                        conf['region_name'], conf['vpc_id'])
-        elif conf['watcher']:
+        elif conf['mode'] == "watcher":
             start_daemon_as_watcher(conf['vpc_id'], conf['file'])
         else:
             # One off run from the command line
             msg, found = handle_request(
                 conf['region_name'], conf['vpc_id'], conf['command'],
-                conf['router_ip'], conf['dst_cidr'], conf['daemon'])
+                conf['router_ip'], conf['dst_cidr'], conf['mode'] != 'cli')
             if found:
                 sys.exit(0)
             else:

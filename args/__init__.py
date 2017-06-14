@@ -35,10 +35,8 @@ def parse_args():
     # Setting up the command line argument parser
     parser = argparse.ArgumentParser(
         description="VPC router: Set routes in VPC route table")
-    parser.add_argument('-d', '--daemon', dest='daemon', action='store_true',
-                        help="start as daemon, wait for commands via network")
-    parser.add_argument('-w', '--watcher', dest='watcher', action='store_true',
-                        help="start as daemon, wait for routing spec updates"),
+    parser.add_argument('-m', '--mode', dest='mode', default='cli',
+                        help="either 'cli', 'http', or 'watcher'")
     parser.add_argument('-f', '--file', dest='watch_file',
                         help="config file for routing groups (watcher only)"),
     parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
@@ -46,11 +44,11 @@ def parse_args():
     parser.add_argument('-a', '--address', dest="listen_addr",
                         default="localhost",
                         help="address to listen on for commands "
-                             "(only daemon mode)")
+                             "(only http mode)")
     parser.add_argument('-p', '--port', dest="listen_port", default="33289",
                         type=int,
                         help="port to listen on for commands "
-                             "(only daemon mode)")
+                             "(only http mode)")
     parser.add_argument('-c', '--cmd', dest="command",
                         help="either 'show', 'add' or 'del' (default: 'show')")
     parser.add_argument('-r', '--region', dest="region",
@@ -66,24 +64,23 @@ def parse_args():
     conf['command']     = args.command
     conf['dst_cidr']    = args.dst_cidr
     conf['router_ip']   = args.router_ip
-    conf['daemon']      = args.daemon
-    conf['watcher']     = args.watcher
+    conf['mode']        = args.mode
     conf['file']        = args.watch_file
     conf['port']        = args.listen_port
     conf['addr']        = args.listen_addr
 
     # Sanity checking of arguments
     try:
-        if conf['daemon']:
-            # Sanity checks if started in daemon mode
+        if conf['mode'] == 'http':
+            # Sanity checks if started in http mode
             if not 0 < conf['port'] < 65535:
-                raise ArgsError("Invalid listen port '%d' for daemon mode." %
+                raise ArgsError("Invalid listen port '%d' for http mode." %
                                 conf['port'])
             if not conf['addr'] == "localhost":
                 # maybe a proper address was specified?
                 ip_check(conf['addr'])
 
-        elif conf['watcher']:
+        elif conf['mode'] == 'watcher':
             if not conf['file']:
                 raise ArgsError("A config file needs to be specified (-f).")
             try:
@@ -93,7 +90,7 @@ def parse_args():
             except IOError as e:
                 raise ArgsError("Cannot open config file '%s': %s" %
                                 (conf['file'], e))
-        else:
+        elif conf['mode'] == 'cli':
             # Sanity check if started with command line arguments
             if conf['command'] not in [ 'add', 'del', 'show' ]:
                 raise ArgsError("Only commands 'add', 'del' or 'show' are "
@@ -111,6 +108,10 @@ def parse_args():
             ip_check(conf['dst_cidr'], netmask_expected=True)
             if conf['router_ip']:
                 ip_check(conf['router_ip'])
+
+        else:
+
+            raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
 
     except ArgsError as e:
         parser.print_help()

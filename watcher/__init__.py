@@ -81,7 +81,7 @@ def process_route_spec_config(vpc_id, route_spec):
     IP.
 
     """
-    pass
+    print "Processing: ", route_spec
 
 
 def start_daemon_as_watcher(vpc_id, fname):
