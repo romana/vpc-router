@@ -4,7 +4,7 @@
 
 vpc-router is a utility for the setting/deleting of routes in a VPC, consisting
 of a destination CIDR as well as the IP address of an EC2 instance, which
-should act as the router for the CIDR.
+should receive packets for any address in that CIDR.
 
 This program can be used either as a command line utility for a one-off
 operation, or it can be started in daemon mode. In the latter case, it will

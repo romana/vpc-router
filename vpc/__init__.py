@@ -190,6 +190,9 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     indicates whether the specified routes for a show or del command were
     found.
 
+    Currently, we are not cashing the connection to the AWS API, we are opening
+    and closing it for every request.
+
     """
     try:
         con           = connect_to_region(region_name)
