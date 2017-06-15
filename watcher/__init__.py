@@ -23,9 +23,9 @@ import os
 import json
 import time
 
-from errors import ArgsError
+from errors import ArgsError, VpcRouteSetError
 from utils  import ip_check
-from vpc    import handle_request
+from vpc    import handle_spec
 
 from watchdog.events    import FileSystemEventHandler, FileModifiedEvent
 from watchdog.observers import Observer
@@ -70,21 +70,7 @@ def read_route_spec_config(fname):
     return data
 
 
-def process_route_spec_config(vpc_id, route_spec):
-    """
-    Looks through the route spec and updates routes accordingly.
-
-    Idea: Make sure we have a route for each CIDR.
-
-    If we have a route to any of the IP addresses for a given CIDR then we are
-    good. Otherwise, pick one (usually the first) IP and create a route to that
-    IP.
-
-    """
-    print "Processing: ", route_spec
-
-
-def start_daemon_as_watcher(vpc_id, fname):
+def start_daemon_as_watcher(region_name, vpc_id, fname):
     """
     Start the VPC router as watcher, who listens for changes in a config file.
 
@@ -99,9 +85,11 @@ def start_daemon_as_watcher(vpc_id, fname):
     # Do one initial read and parse of the config file to start operation
     try:
         route_spec = read_route_spec_config(fname)
-        process_route_spec_config(vpc_id, route_spec)
+        handle_spec(region_name, vpc_id, route_spec, True)
     except ValueError as e:
         print "@@@ Warning: Cannot parse route spec: %s" % str(e)
+    except VpcRouteSetError as e:
+        print "@@@ Cannot set route: %s" % str(e)
 
 
     # Now prepare to watch for any changes in that file.
@@ -120,9 +108,11 @@ def start_daemon_as_watcher(vpc_id, fname):
             if type(event) is FileModifiedEvent and event.src_path == abspath:
                 try:
                     route_spec = read_route_spec_config(fname)
-                    process_route_spec_config(vpc_id, route_spec)
+                    handle_spec(region_name, vpc_id, route_spec, True)
                 except ValueError as e:
                     print "@@@ Warning: Cannot parse route spec: %s" % str(e)
+                except VpcRouteSetError as e:
+                    print "@@@ Cannot set route: %s" % str(e)
 
     # Create the file watcher and run in endless loop
     observer = Observer()

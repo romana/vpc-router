@@ -33,7 +33,8 @@ if __name__ == "__main__":
             start_daemon_with_http_api(conf['addr'], conf['port'],
                                        conf['region_name'], conf['vpc_id'])
         elif conf['mode'] == "watcher":
-            start_daemon_as_watcher(conf['vpc_id'], conf['file'])
+            start_daemon_as_watcher(conf['region_name'], conf['vpc_id'],
+                                    conf['file'])
         else:
             # One off run from the command line
             msg, found = handle_request(

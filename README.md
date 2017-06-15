@@ -6,9 +6,12 @@ vpc-router is a utility for the setting/deleting of routes in a VPC, consisting
 of a destination CIDR as well as the IP address of an EC2 instance, which
 should receive packets for any address in that CIDR.
 
-This program can be used either as a command line utility for a one-off
-operation, or it can be started in daemon mode. In the latter case, it will
-start to listen for REST-like requests on an HTTP port.
+This program can be used in various modes:
+
+* CLI mode: a command line utility for a one-off operation
+* Server mode: as a daemon listening for REST-like requests on an HTTP port
+* Watcher mode: as daemon that monitors changes to a config file and updates
+routes accordingly
 
 ## Installation
 
@@ -65,9 +68,9 @@ If the specified route doesn't exist, the exit code will be '1'.
 ## Server mode: Using vpc-router as a daemon
 
 To use vpc-router as a permanently running daemon, simply specify the region,
-VPC ID as well as the '-d' flag:
+VPC ID as well as the '-m / --mode' flag with the 'http' value:
 
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -d
+    $ ./vpc-router.py -m http -r us-east-1 -v vpc-350d6a51
 
 You can then perform the 'add', 'show' and 'del' commands by posting requests
 with the POST, GET or DELETE message, respectively.
@@ -79,7 +82,7 @@ By default, vpc-router listens on the loopback address for incoming requests.
 To specify other addresses, use the '-a' option. Specifically, use
 '-a 0.0.0.0' to listen on any interface and address.
 
-### Examples for API requests in daemon mode
+### Examples for API requests in server mode
 
 **Setting a route ('POST')**:
 
@@ -96,6 +99,28 @@ router IP address, will update the route to the new IP address.*
 
     $ curl -X "DELETE" "http://localhost:33289/route?dst_cidr=10.55.0.0/16"
 
+## Watcher mode
+
+The vpc-router may also retrieve routing specs from a config file, which it
+continuously monitors for any changes. Specify 'watcher' as mode and provide a
+config file via the -f option.
+
+    $ ./vpc-router.py -m watcher -f route-spec.conf -r us-east-1 -v vpc-350d6a51
+
+The format of the route-spec file is simple:
+
+    {
+        "10.55.16.0/24" : [ "10.33.20.142" ],
+        "10.55.17.0/24" : [ "10.33.20.93", "10.33.20.95" ],
+        "10.66.17.0/24" : [ "10.33.20.93" ]
+    }
+
+For each CIDR a list of instance IP addresses provided. If a route to the CIDR
+doesn't exist then a route to the first host in the list is created for the
+CIDR. Routes to CIDRs not mentioned in the spec are deleted.
+
+The host list may be changed, but as long as the current route destination is
+still in the list the route will not be updated, to avoid unnecessary updates.
 
 ## TODO
 
