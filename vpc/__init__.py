@@ -19,8 +19,6 @@ limitations under the License.
 # Functions dealing with VPC.
 #
 
-import traceback
-
 import boto.vpc
 
 from errors import VpcRouteSetError

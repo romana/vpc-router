@@ -22,6 +22,7 @@ limitations under the License.
 import os
 import json
 import time
+import Queue
 
 from errors import ArgsError, VpcRouteSetError
 from utils  import ip_check
@@ -118,9 +119,30 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
     observer = Observer()
     observer.schedule(MyEventHandler(), parent_dir)
     observer.start()
+
+    # Setup a queue, which we will read from occasionally to see if our
+    # monitoring detected any instances that have gone down.
+    q_failed_ips  = Queue.Queue()
+
+    # Also setup a queue to communicate sets of IPs for monitoring to the
+    # monitor module.
+    q_monitor_ips = Queue.Queue()
+
     try:
         while True:
-            time.sleep(10) # seems to be no change in if we modifiy this time
+            time.sleep(1)
+            # Loop until we have processed all available message from the queue
+            while True:
+                try:
+                    failed_ip = q.get_nowait()
+                    # The message is just an IP address of a host that's not
+                    # accessible anymore.
+
+
+                except Queue.Empty:
+                    # No more messages, all done for now
+                    break
+
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
