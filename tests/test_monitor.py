@@ -53,6 +53,7 @@ class TestQueues(unittest.TestCase):
                 raise socket.gaierror()
             else:
                 return 0.5
+        # Now we install this new ping function in place of the original one.
         # Clearly, this is a white box test: We know about the inner working of
         # the monitoring module in order to perform our monkey patch.
         ping.do_one = new_do_one
@@ -87,18 +88,20 @@ class TestQueues(unittest.TestCase):
 
         # List of inputs and expected outputs
         input_output = [
-            ([ "10.0.0.0" ],                       None),     # No failed IPs
-            ([ "11.1.1.1" ],                       [ "11.1.1.1" ]),
-            ([ "11.1.1.1","10.0.0.0" ],            [ "11.1.1.1" ]),
-            ([ "11.1.1.1","11.2.2.2","10.0.0.0" ], [ "11.1.1.1","11.2.2.2" ]),
-            ([ "11.1.1.1","11.2.2.2","11.3.3.3" ], [ "11.1.1.1","11.2.2.2",
-                                                     "11.3.3.3" ]),
+            ([ "10.0.0.0" ],                        None),     # No failed IPs
+            ([ "11.1.1.1" ],                        [ "11.1.1.1" ]),
+            ([ "11.1.1.1","10.0.0.0" ],             [ "11.1.1.1" ]),
+            ([ "11.1.1.1","11.2.2.2","10.0.0.0" ],  [ "11.1.1.1","11.2.2.2" ]),
+            ([ "11.1.1.1","11.2.2.2","11.3.3.3" ],  [ "11.1.1.1","11.2.2.2",
+                                                      "11.3.3.3" ]),
             # Now also with some malformed input
             ([ "333.3.3.3","10.2.2.2","11.3.3.3" ], [ "333.3.3.3","11.3.3.3" ])
         ]
         for inp, expected_out in input_output:
             self.q_monitor_ips.put(inp)
             if expected_out is None:
+                # No message should be received if all hosts in the input
+                # list are healthy.
                 self.assertRaises(Queue.Empty, self.q_failed_ips.get,
                                   **{"timeout":0.2})
             else:

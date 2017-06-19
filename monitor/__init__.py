@@ -25,7 +25,11 @@ import time
 import threading
 
 
-class StopReceived(Exception):
+class _StopReceived(Exception):
+    """
+    Raised after monitor thread receives stop signal.
+
+    """
     pass
 
 
@@ -58,7 +62,7 @@ def _get_new_working_set(q_monitor_ips):
     one, since maybe we received two updates in a row, but each update
     is a full state, so only the last one matters.
 
-    Raises the StopReceived exception if the stop signal ("None") was received
+    Raises the _StopReceived exception if the stop signal ("None") was received
     on the notification queue.
 
     """
@@ -68,12 +72,39 @@ def _get_new_working_set(q_monitor_ips):
             new_list_of_ips = q_monitor_ips.get_nowait()
             q_monitor_ips.task_done()
             if new_list_of_ips is None:
-                raise StopReceived()
+                raise _StopReceived()
         except Queue.Empty:
             # No more messages, all done reading monitor list for now
             break
     return new_list_of_ips
 
+
+def _do_health_checks(list_of_ips):
+    """
+    Perform a health check on a list of IP addresses.
+
+    Each check (we use ICMP echo right now) is run in its own thread.
+
+    Gather up the results and return the list of those addresses that failed
+    the test.
+
+    """
+    threads = []
+    results = {}
+
+    # Start the thread for each IP we wish to ping...
+    for ip in list_of_ips:
+        thread = threading.Thread(target=_do_ping,
+                                  args=(ip, results))
+        thread.start()
+        threads.append(thread)
+
+    # ... make sure all threads are done...
+    for thread in threads:
+        thread.join()
+
+    # ... and gather up the results and send back if needed
+    return [ k for k,v in results.items() if v is None ]
 
 
 def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
@@ -102,26 +133,16 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
             if new_ips:
                 list_of_ips = new_ips
 
-            # Start a thread for each IP address to check if it's available.
+            # Independent of any updates: Perform health check on all IPs in
+            # the working set and send messages out about any failed once as
+            # necessary.
             if list_of_ips:
-                threads = []
-                results = {}
-                # Start the thread for each IP we wish to ping...
-                for ip in list_of_ips:
-                    thread = threading.Thread(target=_do_ping,
-                                              args=(ip, results))
-                    thread.start()
-                    threads.append(thread)
-                # ... make sure all threads are done...
-                for thread in threads:
-                    thread.join()
-                # ... and gather up the results and send back if needed
-                failed_ips = [ k for k,v in results.items() if v is None ]
+                failed_ips = _do_health_checks(list_of_ips)
                 if failed_ips:
                     q_failed_ips.put(failed_ips)
 
             time.sleep(interval)
-    except StopReceived:
+    except _StopReceived:
         # Received the stop signal, just exiting the thread function
         return
 
@@ -148,9 +169,9 @@ def start_monitor_in_background(interval=2):
     # Prepare two queues for communication with the thread
     q_monitor_ips  = Queue.Queue()
     q_failed_ips   = Queue.Queue()
-    monitor_thread = threading.Thread(target=start_monitoring,
-                                      args=(q_monitor_ips, q_failed_ips,
-                                            interval))
+    monitor_thread = threading.Thread(target = start_monitoring,
+                                      args   = (q_monitor_ips, q_failed_ips,
+                                                interval))
     monitor_thread.daemon = True
     monitor_thread.start()
 

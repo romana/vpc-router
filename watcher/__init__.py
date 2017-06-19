@@ -19,17 +19,24 @@ limitations under the License.
 # Functions for watching route spec in daemon mode
 #
 
-import os
+import itertools
 import json
-import time
+import os
 import Queue
+import time
 
-from errors import ArgsError, VpcRouteSetError
-from utils  import ip_check
-from vpc    import handle_spec
+from errors  import ArgsError, VpcRouteSetError
+from monitor import start_monitor_in_background
+from utils   import ip_check
+from vpc     import handle_spec
 
 from watchdog.events    import FileSystemEventHandler, FileModifiedEvent
 from watchdog.observers import Observer
+
+
+FAILED_IPS    = []
+Q_MONITOR_IPS = None
+Q_FAILED_IPS  = None
 
 
 def read_route_spec_config(fname):
@@ -83,15 +90,34 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
     routes as necessary.
 
     """
-    # Do one initial read and parse of the config file to start operation
-    try:
-        route_spec = read_route_spec_config(fname)
-        handle_spec(region_name, vpc_id, route_spec, True)
-    except ValueError as e:
-        print "@@@ Warning: Cannot parse route spec: %s" % str(e)
-    except VpcRouteSetError as e:
-        print "@@@ Cannot set route: %s" % str(e)
+    global Q_MONITOR_IPS, Q_FAILED_IPS, FAILED_IPS
 
+    # Start the monitoring thread
+    monitor_thread, Q_MONITOR_IPS, Q_FAILED_IPS = \
+                                            start_monitor_in_background()
+
+    def _parse_and_process():
+        """
+        Read and parse spec file, update routes, let monitor thread know which
+        IPs are in the config.
+
+        """
+        try:
+            route_spec = read_route_spec_config(fname)
+            if not route_spec:
+                return
+            handle_spec(region_name, vpc_id, route_spec, True, FAILED_IPS)
+            # Get all the hosts, independent of route they belong to
+            all_hosts = set(itertools.chain.from_iterable(route_spec.values()))
+            Q_MONITOR_IPS.put(list(all_hosts))
+        except ValueError as e:
+            print "@@@ Warning: Cannot parse route spec: %s" % str(e)
+        except VpcRouteSetError as e:
+            print "@@@ Cannot set route: %s" % str(e)
+
+    # Initial content of file needs to be processed at least once, before we
+    # start watching for any changes to it.
+    _parse_and_process()
 
     # Now prepare to watch for any changes in that file.
     # Find the parent directory of the config file, since this is where we will
@@ -107,26 +133,12 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
         """
         def on_modified(self, event):
             if type(event) is FileModifiedEvent and event.src_path == abspath:
-                try:
-                    route_spec = read_route_spec_config(fname)
-                    handle_spec(region_name, vpc_id, route_spec, True)
-                except ValueError as e:
-                    print "@@@ Warning: Cannot parse route spec: %s" % str(e)
-                except VpcRouteSetError as e:
-                    print "@@@ Cannot set route: %s" % str(e)
+                _parse_and_process()
 
     # Create the file watcher and run in endless loop
-    observer = Observer()
-    observer.schedule(MyEventHandler(), parent_dir)
-    observer.start()
-
-    # Setup a queue, which we will read from occasionally to see if our
-    # monitoring detected any instances that have gone down.
-    q_failed_ips  = Queue.Queue()
-
-    # Also setup a queue to communicate sets of IPs for monitoring to the
-    # monitor module.
-    q_monitor_ips = Queue.Queue()
+    observer_thread = Observer()
+    observer_thread.schedule(MyEventHandler(), parent_dir)
+    observer_thread.start()
 
     try:
         while True:
@@ -134,17 +146,21 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
             # Loop until we have processed all available message from the queue
             while True:
                 try:
-                    failed_ip = q.get_nowait()
+                    failed_ips = Q_FAILED_IPS.get_nowait()
                     # The message is just an IP address of a host that's not
                     # accessible anymore.
-
-
+                    print "@@@ received new failed IPs: ", failed_ips
+                    FAILED_IPS = failed_ips
+                    _parse_and_process()
                 except Queue.Empty:
                     # No more messages, all done for now
                     break
 
     except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+        observer_thread.stop()   # Stop signal for config watcher thread
+        Q_MONITOR_IPS.put(None)  # Stop signal to monitor thread
+
+    observer_thread.join()
+    monitor_thread.join()
 
 

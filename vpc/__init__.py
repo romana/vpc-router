@@ -19,6 +19,9 @@ limitations under the License.
 # Functions dealing with VPC.
 #
 
+import random
+import traceback
+
 import boto.vpc
 
 from errors import VpcRouteSetError
@@ -207,7 +210,39 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
     return msg, found
 
 
-def process_route_spec_config(con, vpc_info, route_spec, daemon):
+def _choose_from_hosts(ip_list, failed_ips, first_choice=None):
+    """
+    Choose a host from a list of hosts.
+
+    Check against the list of failed IPs to ensure that none of those is
+    returned.
+
+    If no suitable hosts can be found in the list (if it's empty or all hosts
+    are in the failed_ips list) it will return None.
+
+    """
+    if not ip_list:
+        return None
+    if first_choice is None:
+        # By default a random first element should be chosen. We provide it as
+        # a parameter for testing purposes.
+        first_choice = random.randint(0, len(ip_list)-1)
+
+    # Start at the chosen first position and then iterate one by one from
+    # there, until we find an IP that's not failed
+    i = first_choice
+    while True:
+        if ip_list[i] not in failed_ips:
+            return ip_list[i]
+        i += 1
+        if i == len(ip_list):
+            i = 0
+        if i == first_choice:
+            break
+    return None
+
+
+def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
     """
     Looks through the route spec and updates routes accordingly.
 
@@ -217,7 +252,10 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon):
     good. Otherwise, pick one (usually the first) IP and create a route to that
     IP.
 
+    If a route points at a failed IP then a new candidate is chosen.
+
     """
+    print "@@@ failed ips: ", failed_ips
     msg = []
 
     # Iterate over all the routes in the VPC, check if they are contained in
@@ -241,22 +279,34 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon):
             instance    = vpc_info['instance_by_id'][r.instance_id]
             ipaddr, eni = get_instance_private_ip_from_route(instance, r)
 
+            ipaddr_has_failed = ipaddr in failed_ips
+
             if hosts:
                 # This route is in the spec!
-                if ipaddr in hosts:
+                if ipaddr in hosts and not ipaddr_has_failed:
                     msg.append("--- route exists already in RT '%s': "
                                "%s -> %s (%s, %s)" %
                                (rt.id, dcidr, ipaddr, instance.id, eni.id))
                 else:
-                    # Current route doesn't point to an address in the spec
-                    router_ip = hosts[0]
+                    # Current route doesn't point to an address in the spec or
+                    # that IP has failed. Choose a new router IP address from
+                    # the host list.
+                    router_ip = _choose_from_hosts(hosts, failed_ips)
+                    if not router_ip:
+                        msg.append("--- cannot find available target for "
+                                   "route %s! Nothing I can do..." % dcidr)
+                        continue
                     try:
                         new_instance, new_eni = \
                             find_instance_and_emi_by_ip(vpc_info, router_ip)
-                        msg.append("--- route exists already in RT '%s', "
-                                   "but with different destination: "
+                        if ipaddr_has_failed:
+                            msg_fragment = "but router IP %s has failed: " % \
+                                                    ipaddr
+                        else:
+                            msg_fragment = "but with different destination: "
+                        msg.append("--- route exists already in RT '%s', %s"
                                    "updating %s -> %s (%s, %s)" %
-                                   (rt.id, dcidr, router_ip,
+                                   (rt.id, msg_fragment, dcidr, router_ip,
                                     new_instance.id, new_eni.id))
                         con.replace_route(
                                     route_table_id         = rt.id,
@@ -298,11 +348,10 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon):
                     msg.append("*** failed to add route in RT '%s'"
                                "%s -> %s (%s)" %
                                (rt.id, dcidr, router_ip, e.message))
-
     return msg
 
 
-def handle_spec(region_name, vpc_id, route_spec, daemon):
+def handle_spec(region_name, vpc_id, route_spec, daemon, failed_ips):
     """
     Connect to region and update routes according to route spec.
 
@@ -313,16 +362,19 @@ def handle_spec(region_name, vpc_id, route_spec, daemon):
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        msgs     = process_route_spec_config(con, vpc_info, route_spec, daemon)
+        msgs     = process_route_spec_config(con, vpc_info, route_spec, daemon,
+                                             failed_ips)
         con.close()
 
-        #if not daemon:
-        for m in msgs:
-            print m
+        if True or not daemon:
+            if msgs:
+                for m in msgs:
+                    print m
 
         return msgs
 
     except boto.exception.StandardError as e:
+        traceback.print_exc()
         raise VpcRouteSetError("AWS API: " + e.message)
 
     except boto.exception.NoAuthHandlerFound:
