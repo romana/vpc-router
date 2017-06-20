@@ -39,6 +39,35 @@ Q_MONITOR_IPS = None
 Q_FAILED_IPS  = None
 
 
+class RouteSpecChangeEventHandler(FileSystemEventHandler):
+    """
+    My own event handler class, to be used to process events on the route-spec
+    file. Since it calls the process function, it needs to know info about the
+    file itself (paths and filenames) as well as the AWS side (region and VPC).
+
+    """
+    def __init__(self, *args, **kwargs):
+        self._route_spec_fname   = kwargs['route_spec_fname']
+        self._route_spec_abspath = kwargs['route_spec_abspath']
+        self._region_name        = kwargs['region_name']
+        self._vpc_id             = kwargs['vpc_id']
+
+        del kwargs['route_spec_fname']
+        del kwargs['route_spec_abspath']
+        del kwargs['region_name']
+        del kwargs['vpc_id']
+
+        super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
+
+
+    def on_modified(self, event):
+        if type(event) is FileModifiedEvent and \
+                                    event.src_path == self._route_spec_abspath:
+            _parse_and_process(self._route_spec_fname,
+                               self._region_name,
+                               self._vpc_id)
+
+
 def read_route_spec_config(fname):
     """
     Read, parse and sanity check the route spec config file.
@@ -78,6 +107,26 @@ def read_route_spec_config(fname):
     return data
 
 
+def _parse_and_process(fname, region_name, vpc_id):
+    """
+    Read and parse spec file, update routes, let monitor thread know which
+    IPs are in the config.
+
+    """
+    try:
+        route_spec = read_route_spec_config(fname)
+        if not route_spec:
+            return
+        handle_spec(region_name, vpc_id, route_spec, True, FAILED_IPS)
+        # Get all the hosts, independent of route they belong to
+        all_hosts = set(itertools.chain.from_iterable(route_spec.values()))
+        Q_MONITOR_IPS.put(list(all_hosts))
+    except ValueError as e:
+        print "@@@ Warning: Cannot parse route spec: %s" % str(e)
+    except VpcRouteSetError as e:
+        print "@@@ Cannot set route: %s" % str(e)
+
+
 def start_daemon_as_watcher(region_name, vpc_id, fname):
     """
     Start the VPC router as watcher, who listens for changes in a config file.
@@ -96,28 +145,9 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
     monitor_thread, Q_MONITOR_IPS, Q_FAILED_IPS = \
                                             start_monitor_in_background()
 
-    def _parse_and_process():
-        """
-        Read and parse spec file, update routes, let monitor thread know which
-        IPs are in the config.
-
-        """
-        try:
-            route_spec = read_route_spec_config(fname)
-            if not route_spec:
-                return
-            handle_spec(region_name, vpc_id, route_spec, True, FAILED_IPS)
-            # Get all the hosts, independent of route they belong to
-            all_hosts = set(itertools.chain.from_iterable(route_spec.values()))
-            Q_MONITOR_IPS.put(list(all_hosts))
-        except ValueError as e:
-            print "@@@ Warning: Cannot parse route spec: %s" % str(e)
-        except VpcRouteSetError as e:
-            print "@@@ Cannot set route: %s" % str(e)
-
     # Initial content of file needs to be processed at least once, before we
     # start watching for any changes to it.
-    _parse_and_process()
+    _parse_and_process(fname, region_name, vpc_id)
 
     # Now prepare to watch for any changes in that file.
     # Find the parent directory of the config file, since this is where we will
@@ -125,19 +155,13 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
     abspath    = os.path.abspath(fname)
     parent_dir = os.path.dirname(abspath)
 
-    class MyEventHandler(FileSystemEventHandler):
-        """
-        My own event handler class, knows the absolute path we just calculated
-        and only looks for file-modified events of this file.
-
-        """
-        def on_modified(self, event):
-            if type(event) is FileModifiedEvent and event.src_path == abspath:
-                _parse_and_process()
-
     # Create the file watcher and run in endless loop
+    handler = RouteSpecChangeEventHandler(route_spec_fname   = fname,
+                                          route_spec_abspath = abspath,
+                                          region_name        = region_name,
+                                          vpc_id             = vpc_id)
     observer_thread = Observer()
-    observer_thread.schedule(MyEventHandler(), parent_dir)
+    observer_thread.schedule(handler, parent_dir)
     observer_thread.start()
 
     try:
@@ -151,7 +175,7 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
                     # accessible anymore.
                     print "@@@ received new failed IPs: ", failed_ips
                     FAILED_IPS = failed_ips
-                    _parse_and_process()
+                    _parse_and_process(fname, region_name, vpc_id)
                 except Queue.Empty:
                     # No more messages, all done for now
                     break

@@ -25,6 +25,10 @@ from vpc  import _choose_from_hosts
 
 class TestVpc(unittest.TestCase):
     def test_host_choices(self):
+        #
+        # Specific test for the _choose_from_host function, verifying that it
+        # can find available hosts, or indicate error as needed.
+        #
         in_out = [
             [ ( [], [] ),                     None, 0],
             [ ( [ "A" ], [] ),                "A",  0],

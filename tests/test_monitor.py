@@ -79,10 +79,9 @@ class TestQueues(unittest.TestCase):
 
 
     def test_sending_receiving(self):
-        """
-        Simple tests to check various inputs against expected outputs.
-
-        """
+        #
+        # Simple tests to check various inputs against expected outputs.
+        #
         global _FAILED_PREFIX
         _FAILED_PREFIX = "11."
 
@@ -111,15 +110,15 @@ class TestQueues(unittest.TestCase):
 
 
     def test_multi_send_single_receive(self):
-        """
-        We may send multiple updates through really quickly, within the
-        monitoring interval. In that case, all those should be read at once
-        and then only the last one should be processed by the monitor.
-
-        We kinda rely on the fact that we can cram those initial messages
-        through within the first monitoring interval (within 0.5 seconds).
-
-        """
+        #
+        # We may send multiple updates through really quickly, within the
+        # monitoring interval. In that case, all those should be read at once
+        # and then only the last one should be processed by the monitor.
+        #
+        # We kinda rely on the fact that we can cram those initial messages
+        # through within the first monitoring interval (within 0.5 seconds).
+        #
+        #
         global _FAILED_PREFIX
         _FAILED_PREFIX = "11."
 
@@ -147,11 +146,10 @@ class TestQueues(unittest.TestCase):
 
 
     def test_monitor_state_change(self):
-        """
-        We establish the monitor, then change the result for an IP after a
-        while. We should then receive a message about that IP very soon.
-
-        """
+        #
+        # We establish the monitor, then change the result for an IP after a
+        # while. We should then receive a message about that IP very soon.
+        #
         global _FAILED_PREFIX
         _FAILED_PREFIX = "11."
 

@@ -26,12 +26,18 @@ from errors import ArgsError
 
 class TestIpCheck(unittest.TestCase):
     def test_correct(self):
+        #
+        # Specific test for the ip_check function, using correct values.
+        #
         ip_check("192.168.1.2")
         ip_check("192.168.0.0/16", netmask_expected=True)
         ip_check("192.168.0.0/1", netmask_expected=True)
         ip_check("192.168.0.0/32", netmask_expected=True)
 
     def test_incorrect(self):
+        #
+        # Specific test for the ip_check function, using invalid values.
+        #
         for ip, flag in [
                             ("192.168.1.1111", False),
                             ("192.168.1.", False),
