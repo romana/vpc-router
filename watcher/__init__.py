@@ -19,6 +19,8 @@ limitations under the License.
 # Functions for watching route spec in daemon mode
 #
 
+import traceback
+
 import itertools
 import json
 import os
@@ -84,7 +86,11 @@ def read_route_spec_config(fname):
 
     """
     try:
-        f = open(fname, "r")
+        try:
+            f = open(fname, "r")
+        except IOError as e:
+            # Cannot open file? Doesn't exist?
+            raise ValueError("Cannot open file: " + str(e))
         data = json.loads(f.read())
         f.close()
         # Sanity checking on the data object
@@ -102,7 +108,8 @@ def read_route_spec_config(fname):
             raise ValueError(e.message)
 
     except ValueError as e:
-        print "*** Error: Malformed config file ignored: %s" % str(e)
+        print "*** Error: Config file ignored: %s" % str(e)
+        data = None
 
     return data
 
@@ -124,10 +131,12 @@ def _parse_and_process(fname, region_name, vpc_id):
     except ValueError as e:
         print "@@@ Warning: Cannot parse route spec: %s" % str(e)
     except VpcRouteSetError as e:
+        traceback.print_exc()
         print "@@@ Cannot set route: %s" % str(e)
 
 
-def start_daemon_as_watcher(region_name, vpc_id, fname):
+def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
+                            sleep_time=1):
     """
     Start the VPC router as watcher, who listens for changes in a config file.
 
@@ -138,12 +147,16 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
     VPC router watches for any changes in the file and updates/adds/deletes
     routes as necessary.
 
+    The 'iterations' argument allows us to limit the running time of the watch
+    loop for test purposes. Not used during normal operation. Also, for faster
+    tests, sleep_time can be set to values less than 1.
+
     """
     global Q_MONITOR_IPS, Q_FAILED_IPS, FAILED_IPS
 
     # Start the monitoring thread
     monitor_thread, Q_MONITOR_IPS, Q_FAILED_IPS = \
-                                            start_monitor_in_background()
+                                    start_monitor_in_background(sleep_time)
 
     # Initial content of file needs to be processed at least once, before we
     # start watching for any changes to it.
@@ -166,23 +179,33 @@ def start_daemon_as_watcher(region_name, vpc_id, fname):
 
     try:
         while True:
-            time.sleep(1)
+            time.sleep(sleep_time)
+
             # Loop until we have processed all available message from the queue
             while True:
                 try:
                     failed_ips = Q_FAILED_IPS.get_nowait()
+                    Q_FAILED_IPS.task_done()
                     # The message is just an IP address of a host that's not
                     # accessible anymore.
-                    print "@@@ received new failed IPs: ", failed_ips
                     FAILED_IPS = failed_ips
                     _parse_and_process(fname, region_name, vpc_id)
                 except Queue.Empty:
                     # No more messages, all done for now
                     break
 
+            # If iterations are provided, count down and exit
+            if iterations is not None:
+                iterations -= 1
+                if iterations == 0:
+                    break
+
     except KeyboardInterrupt:
-        observer_thread.stop()   # Stop signal for config watcher thread
-        Q_MONITOR_IPS.put(None)  # Stop signal to monitor thread
+        # Allow exit via keyboard interrupt, useful during development
+        pass
+
+    observer_thread.stop()   # Stop signal for config watcher thread
+    Q_MONITOR_IPS.put(None)  # Stop signal to monitor thread
 
     observer_thread.join()
     monitor_thread.join()
