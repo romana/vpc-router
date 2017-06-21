@@ -2,15 +2,28 @@
 
 ## Introduction
 
-vpc-router is a utility for the setting/deleting of routes in a VPC, consisting
-of a destination CIDR as well as the IP address of an EC2 instance, which
-should receive packets for any address in that CIDR.
+vpc-router is a utility for the setting/deleting of routes in a VPC route
+table, consisting of a destination CIDR as well as the IP address of an EC2
+instance, which should receive packets for any address in that CIDR.
+
+In addition, vpc-router can continuously monitor instance health and perform an
+immediate route failover in case of a detected instance failure.
+
+Routes can be configured in different ways, but most commonly, vpc-router will
+take route configs from a storage (file or KV store) and automatically detect
+any changes to the route configuration. It will make sure that routes in the
+VPC route table are updated as needed.
+
+By default, it applies all route updates to all the route tables it can find
+within a specified VPC.
+
+### Project origin
 
 This program was developed for the [Romana project](http://romana.io), in order
 to seamlessly deploy large [Kubernetes](https://kubernetes.io) clusters across
 multiple availability zones in an Amazon VPC. While specifically designed to
 scratch our itch for this usage scenario in the context of Romana and
-Kubernetes, the vpc-router does not depend on either project and can alsol be
+Kubernetes, the vpc-router does not depend on either project and can also be
 used stand-alone.
 
 ## Installation
