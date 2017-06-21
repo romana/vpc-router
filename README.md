@@ -35,15 +35,15 @@ install the required libraries:
     $ virtualenv vpcrouter
     $ source vpcrouter/bin/activate
     $ cd vpc-router
-    $ pip install -r requirements/base.txt
+    $ pip install -r requirements/deploy.txt
 
-If you wish to develop vpc-router, you might wish to replace the last step
-with:
+If you want to modify or contribute to vpc-router, you might wish to replace
+the last step with:
 
     $ pip install -r requirements/develop.txt
 
-This installs packages related to running unit tests, which aren't needed if
-you just wish to deploy vpc-router in production.
+This also installs packages related to running unit tests, which aren't needed
+if you just want to deploy vpc-router in production.
 
 ## Modes of operation
 
@@ -52,7 +52,8 @@ The vpc-router can be used in various modes:
 * CLI mode: a command line utility for a one-off operation
 * Server mode: as a daemon listening for REST-like requests on an HTTP port
 * Watcher mode: as daemon that monitors changes to a config file and health of
-instances and updates routes accordingly
+instances and updates routes accordingly (this is the most common mode for
+production deployments)
 
 ## CLI mode: Using vpc-router for single commands
 
@@ -131,11 +132,13 @@ router IP address, will update the route to the new IP address.*
 
 ## Watcher mode
 
-The vpc-router may also retrieve routing specs from a config file, which it
-continuously monitors for any changes. Specify 'watcher' as mode and provide a
-config file via the -f option. In addition: When using the watcher mode,
-vpc-router will continuously perform health checks on the instances and update
-routes to an alternate instance if the current route target should [[fail.]]
+This is the default mode of operation, most suitable for production
+deployments. In this mode, the vpc-router retrieves routing specs from a config
+file, which it continuously monitors for any changes. Specify 'watcher' as mode
+and provide a config file via the -f option. In addition: When using the
+watcher mode, vpc-router will continuously perform health checks on the
+instances and update routes to an alternate instance if the current route
+target should [[fail.]]
 
     $ ./vpc-router.py -m watcher -f route-spec.conf -r us-east-1 -v vpc-350d6a51
 
