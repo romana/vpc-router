@@ -6,12 +6,12 @@ vpc-router is a utility for the setting/deleting of routes in a VPC, consisting
 of a destination CIDR as well as the IP address of an EC2 instance, which
 should receive packets for any address in that CIDR.
 
-This program can be used in various modes:
-
-* CLI mode: a command line utility for a one-off operation
-* Server mode: as a daemon listening for REST-like requests on an HTTP port
-* Watcher mode: as daemon that monitors changes to a config file and updates
-routes accordingly
+This program was developed for the [Romana project](http://romana.io), in order
+to seamlessly deploy large [Kubernetes](https://kubernetes.io) clusters across
+multiple availability zones in an Amazon VPC. While specifically designed to
+scratch our itch for this usage scenario in the context of Romana and
+Kubernetes, the vpc-router does not depend on either project and can alsol be
+used stand-alone.
 
 ## Installation
 
@@ -22,7 +22,24 @@ install the required libraries:
     $ virtualenv vpcrouter
     $ source vpcrouter/bin/activate
     $ cd vpc-router
-    $ pip install -r requirements.txt
+    $ pip install -r requirements/base.txt
+
+If you wish to develop vpc-router, you might wish to replace the last step
+with:
+
+    $ pip install -r requirements/develop.txt
+
+This installs packages related to running unit tests, which aren't needed if
+you just wish to deploy vpc-router in production.
+
+## Modes of operation
+
+The vpc-router can be used in various modes:
+
+* CLI mode: a command line utility for a one-off operation
+* Server mode: as a daemon listening for REST-like requests on an HTTP port
+* Watcher mode: as daemon that monitors changes to a config file and health of
+instances and updates routes accordingly
 
 ## CLI mode: Using vpc-router for single commands
 
@@ -103,7 +120,9 @@ router IP address, will update the route to the new IP address.*
 
 The vpc-router may also retrieve routing specs from a config file, which it
 continuously monitors for any changes. Specify 'watcher' as mode and provide a
-config file via the -f option.
+config file via the -f option. In addition: When using the watcher mode,
+vpc-router will continuously perform health checks on the instances and update
+routes to an alternate instance if the current route target should [[fail.]]
 
     $ ./vpc-router.py -m watcher -f route-spec.conf -r us-east-1 -v vpc-350d6a51
 
@@ -122,6 +141,16 @@ CIDR. Routes to CIDRs not mentioned in the spec are deleted.
 The host list may be changed, but as long as the current route destination is
 still in the list the route will not be updated, to avoid unnecessary updates.
 
+### Continuous monitoring
+
+Continuos monitoring is performed when running in watcher mode. If an instance
+does not appear healthy anymore and it is a current target for a route then the
+route will be automatically updated to point to an alternate target, if a
+healthy one is available.
+
+Currently, the health check consists of an ICMP echo request. In the future,
+this will be made configurable.
+
 ## TODO
 
 * When running on an EC2 instance and no VPC or region is specified,
@@ -129,8 +158,9 @@ auto-detect the VPC and region of that instance.
 * Support for BGP listener: Allow vpc-router to act as BGP peer and receive
 route announcements via BGP.
 * Access etcd for routing spec.
-* In conjunction with previous point: Detect failure and update route to
-backup.
+* Configurable health checks.
+* Ability to use CloudWatch alerts, instead of active health checks to detect
+instance failure.
 * Fully developed daemon mode.
 * Logging.
 
