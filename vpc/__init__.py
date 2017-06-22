@@ -19,8 +19,8 @@ limitations under the License.
 # Functions dealing with VPC.
 #
 
+import logging
 import random
-import traceback
 
 import boto.vpc
 
@@ -31,6 +31,7 @@ def connect_to_region(region_name):
     Establish connection to AWS API.
 
     """
+    logging.debug("Connecting to AWS region '%s'" % region_name)
     con = boto.vpc.connect_to_region(region_name)
     if not con:
         raise VpcRouteSetError("Could not establish connection to "
@@ -48,6 +49,7 @@ def get_vpc_overview(con, vpc_id, region_name):
     instances.
 
     """
+    logging.debug("Retrieving information for VPC '%s'" % vpc_id)
     d = {}
     d['zones']  = con.get_all_zones()
 
@@ -144,7 +146,7 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
         "del"  : "Deleting"
     }
     if not daemon:
-        msg.append("%s route: %s" % (cmd_str[cmd], cidr))
+        logging.debug("%s route: %s" % (cmd_str[cmd], cidr))
 
     for rt in vpc_info['route_tables']:
         found_in_rt = False
@@ -255,7 +257,9 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
     If a route points at a failed IP then a new candidate is chosen.
 
     """
-    print "@@@ failed ips: ", failed_ips
+    if failed_ips:
+        logging.debug("Route spec processing. Failed IPs: %s" %
+                      ",".join(failed_ips))
     msg = []
 
     # Iterate over all the routes in the VPC, check if they are contained in
@@ -272,7 +276,6 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
                 # aren't attached to a particular instance. We skip those.
-                print "@@@ skipped route for : ", dcidr
                 continue
             hosts = route_spec.get(dcidr)
 
@@ -359,6 +362,7 @@ def handle_spec(region_name, vpc_id, route_spec, daemon, failed_ips):
     printed or accumulated.
 
     """
+    logging.debug("Handle route spec")
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
@@ -366,15 +370,14 @@ def handle_spec(region_name, vpc_id, route_spec, daemon, failed_ips):
                                              failed_ips)
         con.close()
 
-        if True or not daemon:
+        if not daemon:
             if msgs:
                 for m in msgs:
-                    print m
+                    logging.info(m)
 
         return msgs
 
     except boto.exception.StandardError as e:
-        traceback.print_exc()
         raise VpcRouteSetError("AWS API: " + e.message)
 
     except boto.exception.NoAuthHandlerFound:
@@ -396,6 +399,8 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     printed or accumulated.
 
     """
+    logging.debug("Handle request: cmd=%s, router_ip=%s, cidr=%s" %
+                  (cmd, router_ip, dst_cidr))
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
@@ -409,7 +414,7 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
 
         if not daemon:
             for m in msgs:
-                print m
+                logging.info(m)
 
         return msgs, found
 

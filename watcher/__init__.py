@@ -19,10 +19,9 @@ limitations under the License.
 # Functions for watching route spec in daemon mode
 #
 
-import traceback
-
 import itertools
 import json
+import logging
 import os
 import Queue
 import time
@@ -63,6 +62,8 @@ class RouteSpecChangeEventHandler(FileSystemEventHandler):
 
 
     def on_modified(self, event):
+        logging.debug("Detected file change event for %s" %
+                      self._route_spec_abspath)
         if type(event) is FileModifiedEvent and \
                                     event.src_path == self._route_spec_abspath:
             _parse_and_process(self._route_spec_fname,
@@ -108,7 +109,7 @@ def read_route_spec_config(fname):
             raise ValueError(e.message)
 
     except ValueError as e:
-        print "*** Error: Config file ignored: %s" % str(e)
+        logging.error("Config file ignored: %s" % str(e))
         data = None
 
     return data
@@ -129,10 +130,9 @@ def _parse_and_process(fname, region_name, vpc_id):
         all_hosts = set(itertools.chain.from_iterable(route_spec.values()))
         Q_MONITOR_IPS.put(list(all_hosts))
     except ValueError as e:
-        print "@@@ Warning: Cannot parse route spec: %s" % str(e)
+        logging.warning("Cannot parse route spec: %s" % str(e))
     except VpcRouteSetError as e:
-        traceback.print_exc()
-        print "@@@ Cannot set route: %s" % str(e)
+        logging.error("Cannot set route: %s" % str(e))
 
 
 def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
@@ -189,6 +189,8 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
                     # The message is just an IP address of a host that's not
                     # accessible anymore.
                     FAILED_IPS = failed_ips
+                    logging.info("Detected failed IPs: %s" %
+                                 ",".join(failed_ips))
                     _parse_and_process(fname, region_name, vpc_id)
                 except Queue.Empty:
                     # No more messages, all done for now
@@ -204,7 +206,9 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
         # Allow exit via keyboard interrupt, useful during development
         pass
 
+    logging.debug("Stopping config change observer...")
     observer_thread.stop()   # Stop signal for config watcher thread
+    logging.debug("Stopping health-check monitor...")
     Q_MONITOR_IPS.put(None)  # Stop signal to monitor thread
 
     observer_thread.join()

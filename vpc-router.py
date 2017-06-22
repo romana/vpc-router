@@ -17,8 +17,9 @@ limitations under the License.
 
 """
 
-import sys
 import argparse
+import logging
+import sys
 
 from errors  import ArgsError, VpcRouteSetError
 from http    import start_daemon_with_http_api
@@ -38,6 +39,9 @@ def parse_args():
     # Setting up the command line argument parser
     parser = argparse.ArgumentParser(
         description="VPC router: Set routes in VPC route table")
+    parser.add_argument('-l', '--logfile', dest='logfile',
+                        default='/tmp/vpc-router.log',
+                        help="full path name for the logfile"),
     parser.add_argument('-m', '--mode', dest='mode', default='cli',
                         help="either 'cli', 'http', or 'watcher'")
     parser.add_argument('-f', '--file', dest='watch_file',
@@ -61,6 +65,8 @@ def parse_args():
                         help="the destination CIDR of the route")
     parser.add_argument('-i', '--ip', dest="router_ip",
                         help="IP address of router instance (only for 'add')")
+    parser.add_argument('--verbose', dest="verbose", action='store_true',
+                        help="produces more output")
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
@@ -71,6 +77,8 @@ def parse_args():
     conf['file']        = args.watch_file
     conf['port']        = args.listen_port
     conf['addr']        = args.listen_addr
+    conf['logfile']     = args.logfile
+    conf['verbose']     = args.verbose
 
     # Sanity checking of arguments
     try:
@@ -123,16 +131,45 @@ def parse_args():
     return conf
 
 
+def setup_logging(conf):
+    """
+    Configure the logging framework.
+
+    If run in CLI mode then all log output is simply written to stdout.
+
+    """
+    if conf['verbose']:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    if conf['mode'] == "cli":
+        # Just to stdout
+        logging.basicConfig(level=level, format=None)
+    else:
+        logging.basicConfig(filename=conf['logfile'], level=level,
+                            format='%(asctime)s - %(levelname)-8s - '
+                                   '%(threadName)s: %(message)s')
+
+    # Don't want to see all the debug messages from BOTO
+    logging.getLogger('boto').setLevel(logging.INFO)
+
 #
 # Main body of the executable.
 #
 if __name__ == "__main__":
     try:
+        # Parse command line
         conf = parse_args()
+
+        # Setup logging
+        setup_logging(conf)
+
         if conf['mode'] == "http":
+            logging.info("*** Starting vpc-router in HTTP server mode ***")
             start_daemon_with_http_api(conf['addr'], conf['port'],
                                        conf['region_name'], conf['vpc_id'])
         elif conf['mode'] == "watcher":
+            logging.info("*** Starting vpc-router in watcher mode ***")
             start_daemon_as_watcher(conf['region_name'], conf['vpc_id'],
                                     conf['file'])
         else:
@@ -147,6 +184,6 @@ if __name__ == "__main__":
     except ArgsError as e:
         print "\n*** Error: %s\n" % e.message
     except VpcRouteSetError as e:
-        print "\n*** Error: %s\n" % e.message
+        logging.error(e.message)
     sys.exit(1)
 
