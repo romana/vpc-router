@@ -89,12 +89,12 @@ class TestQueues(unittest.TestCase):
         input_output = [
             ([ "10.0.0.0" ],                        None),     # No failed IPs
             ([ "11.1.1.1" ],                        [ "11.1.1.1" ]),
-            ([ "11.1.1.1","10.0.0.0" ],             [ "11.1.1.1" ]),
-            ([ "11.1.1.1","11.2.2.2","10.0.0.0" ],  [ "11.1.1.1","11.2.2.2" ]),
-            ([ "11.1.1.1","11.2.2.2","11.3.3.3" ],  [ "11.1.1.1","11.2.2.2",
-                                                      "11.3.3.3" ]),
+            ([ "11.1.1.2","10.0.0.0" ],             [ "11.1.1.2" ]),
+            ([ "11.1.1.3","11.2.2.3","10.0.0.3" ],  [ "11.1.1.3","11.2.2.3" ]),
+            ([ "11.1.1.4","11.2.2.4","11.3.3.4" ],  [ "11.1.1.4","11.2.2.4",
+                                                      "11.3.3.4" ]),
             # Now also with some malformed input
-            ([ "333.3.3.3","10.2.2.2","11.3.3.3" ], [ "333.3.3.3","11.3.3.3" ])
+            ([ "333.3.3.5","10.2.2.5","11.3.3.5" ], [ "333.3.3.5","11.3.3.5" ])
         ]
         for inp, expected_out in input_output:
             self.q_monitor_ips.put(inp)
@@ -104,9 +104,15 @@ class TestQueues(unittest.TestCase):
                 self.assertRaises(Queue.Empty, self.q_failed_ips.get,
                                   **{"timeout":0.2})
             else:
-                res = self.q_failed_ips.get(timeout=1)
+                while True:
+                    # Read messages until we are at the last one
+                    try:
+                        res = self.q_failed_ips.get(timeout=1)
+                    except Queue.Empty:
+                        break
                 self.q_failed_ips.task_done()
-                self.assertEqual(sorted(res), sorted(expected_out))
+                self.assertEqual(sorted(res),
+                                 sorted(expected_out))
 
 
     def test_multi_send_single_receive(self):
@@ -141,8 +147,8 @@ class TestQueues(unittest.TestCase):
 
         # Since the monitor will keep checking the IPs, we should keep getting
         # results without en countering an empty queue
-        res = self.q_failed_ips.get(timeout=0.5)
-        res = self.q_failed_ips.get(timeout=0.5)
+        res = self.q_failed_ips.get(timeout=1.5)
+        res = self.q_failed_ips.get(timeout=1.5)
 
 
     def test_monitor_state_change(self):
@@ -153,7 +159,7 @@ class TestQueues(unittest.TestCase):
         global _FAILED_PREFIX
         _FAILED_PREFIX = "11."
 
-        # Two IP addresses, none of them should be considered failed
+        # Three IP addresses, none of them should be considered failed
         self.q_monitor_ips.put([ "10.0.0.0", "12.0.0.0", "13.0.0.0" ])
 
         # There shouldn't be any messages: No failed IPs
@@ -174,7 +180,7 @@ class TestQueues(unittest.TestCase):
         res = self.q_failed_ips.get(timeout=2)
         self.assertEqual([ "12.0.0.0" ], res)
 
-        time.sleep(0.5) # wait and let monitor send a few more messages for 12
+        time.sleep(1.5) # wait and let monitor send a few more messages for 12
 
         # Now switching again...
         _FAILED_PREFIX = "13."

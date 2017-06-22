@@ -156,7 +156,7 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
                     # Update list of currently failed IPs with any new ones
                     currently_failed_ips.update(failed_ips)
                     logging.info("Currently failed IPs: %s" %
-                                  ",".join(currently_failed_ips))
+                                 ",".join(currently_failed_ips))
 
             if interval_count == recheck_failed_interval:
                 # Ever now and then clean out our currently failed IP cache so
