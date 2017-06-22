@@ -62,10 +62,10 @@ class RouteSpecChangeEventHandler(FileSystemEventHandler):
 
 
     def on_modified(self, event):
-        logging.debug("Detected file change event for %s" %
-                      self._route_spec_abspath)
         if type(event) is FileModifiedEvent and \
                                     event.src_path == self._route_spec_abspath:
+            logging.info("Detected file change event for %s" %
+                          self._route_spec_abspath)
             _parse_and_process(self._route_spec_fname,
                                self._region_name,
                                self._vpc_id)
@@ -174,6 +174,7 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
                                           region_name        = region_name,
                                           vpc_id             = vpc_id)
     observer_thread = Observer()
+    observer_thread.name = "ConfMon"
     observer_thread.schedule(handler, parent_dir)
     observer_thread.start()
 
@@ -189,8 +190,6 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
                     # The message is just an IP address of a host that's not
                     # accessible anymore.
                     FAILED_IPS = failed_ips
-                    logging.info("Detected failed IPs: %s" %
-                                 ",".join(failed_ips))
                     _parse_and_process(fname, region_name, vpc_id)
                 except Queue.Empty:
                     # No more messages, all done for now

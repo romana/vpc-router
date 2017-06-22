@@ -148,7 +148,7 @@ def setup_logging(conf):
     else:
         logging.basicConfig(filename=conf['logfile'], level=level,
                             format='%(asctime)s - %(levelname)-8s - '
-                                   '%(threadName)s: %(message)s')
+                                   '%(threadName)-11s - %(message)s')
 
     # Don't want to see all the debug messages from BOTO
     logging.getLogger('boto').setLevel(logging.INFO)

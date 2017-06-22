@@ -19,6 +19,7 @@ limitations under the License.
 # Functions for monitoring instances
 #
 
+import logging
 import ping
 import Queue
 import time
@@ -125,23 +126,46 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
     # This is our working set. This list may be updated occasionally when we
     # receive messages on the q_monitor_ips queue. But irrespective of any
     # received updates, the list of IPs in here is regularly checked.
-    list_of_ips = []
+    list_of_ips             = []
+    currently_failed_ips    = set()
+    recheck_failed_interval = 10 # Accumulating failed IPs for 10 intervals
+                                 # before rechecking them to see if they are
+                                 # alive again
     try:
+        interval_count = 0
         while True:
             # See if we should update our working set
             new_ips = _get_new_working_set(q_monitor_ips)
             if new_ips:
                 list_of_ips = new_ips
 
+            # Don't check failed IPs for liveness on every interval. We
+            # keep a list of currently-failed IPs for that purpose.
+            live_ips_to_check = [ip for ip in list_of_ips if
+                                 ip not in currently_failed_ips]
+            logging.debug("Checking live IPs: %s" %
+                          ",".join(live_ips_to_check))
+
             # Independent of any updates: Perform health check on all IPs in
             # the working set and send messages out about any failed once as
             # necessary.
-            if list_of_ips:
-                failed_ips = _do_health_checks(list_of_ips)
+            if live_ips_to_check:
+                failed_ips = _do_health_checks(live_ips_to_check)
                 if failed_ips:
                     q_failed_ips.put(failed_ips)
+                    # Update list of currently failed IPs with any new ones
+                    currently_failed_ips.update(failed_ips)
+                    logging.info("Currently failed IPs: %s" %
+                                  ",".join(currently_failed_ips))
+
+            if interval_count == recheck_failed_interval:
+                # Ever now and then clean out our currently failed IP cache so
+                # that we can recheck them to see if they are still failed.
+                interval_count = 0
+                currently_failed_ips = set()
 
             time.sleep(interval)
+            interval_count += 1
     except _StopReceived:
         # Received the stop signal, just exiting the thread function
         return
@@ -170,6 +194,7 @@ def start_monitor_in_background(interval=2):
     q_monitor_ips  = Queue.Queue()
     q_failed_ips   = Queue.Queue()
     monitor_thread = threading.Thread(target = start_monitoring,
+                                      name   = "HealthMon",
                                       args   = (q_monitor_ips, q_failed_ips,
                                                 interval))
     monitor_thread.daemon = True
