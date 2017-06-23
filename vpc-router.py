@@ -38,35 +38,46 @@ def parse_args():
     conf = {}
     # Setting up the command line argument parser
     parser = argparse.ArgumentParser(
-        description="VPC router: Set routes in VPC route table")
+        description="VPC router: Manage routes in VPC route table")
+    # General arguments
     parser.add_argument('-l', '--logfile', dest='logfile',
                         default='/tmp/vpc-router.log',
-                        help="full path name for the logfile"),
-    parser.add_argument('-m', '--mode', dest='mode', default='cli',
-                        help="either 'cli', 'http', or 'watcher'")
-    parser.add_argument('-f', '--file', dest='watch_file',
-                        help="config file for routing groups (watcher only)"),
-    parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
-                        help="the ID of the VPC in which to operate")
-    parser.add_argument('-a', '--address', dest="listen_addr",
-                        default="localhost",
-                        help="address to listen on for commands "
-                             "(only http mode)")
-    parser.add_argument('-p', '--port', dest="listen_port", default="33289",
-                        type=int,
-                        help="port to listen on for commands "
-                             "(only http mode)")
-    parser.add_argument('-c', '--cmd', dest="command",
-                        help="either 'show', 'add' or 'del' (default: 'show')")
+                        help="full path name for the logfile "
+                             "(default: /tmp/vpc-router.log"),
     parser.add_argument('-r', '--region', dest="region",
                         default="ap-southeast-2",
                         help="the AWS region of the VPC")
-    parser.add_argument('-C', '--CIDR', dest="dst_cidr",
-                        help="the destination CIDR of the route")
-    parser.add_argument('-i', '--ip', dest="router_ip",
-                        help="IP address of router instance (only for 'add')")
+    parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
+                        help="the ID of the VPC in which to operate")
+    parser.add_argument('-m', '--mode', dest='mode', default='cli',
+                        help="either 'cli' or 'watcher' (default: cli)")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
+
+    # Arguments for the watcher mode
+    parser.add_argument('-f', '--file', dest='watch_file',
+                        help="config file for routing groups "
+                             "(required in watcher mode)"),
+    parser.add_argument('-a', '--address', dest="listen_addr",
+                        default="localhost",
+                        help="address to listen on for commands "
+                             "(only in watcher mode, default: localhost)")
+    parser.add_argument('-p', '--port', dest="listen_port", default="33289",
+                        type=int,
+                        help="port to listen on for commands "
+                             "(only in watcher mode, default: 33289)")
+
+    # Arguments for the CLI mode
+    parser.add_argument('-c', '--cmd', dest="command",
+                        help="either 'show', 'add' or 'del' "
+                             "(only in CLI mode, default: show)")
+    parser.add_argument('-C', '--CIDR', dest="dst_cidr",
+                        help="the destination CIDR of the route "
+                             "(only in CLI mode)")
+    parser.add_argument('-i', '--ip', dest="router_ip",
+                        help="IP address of router instance "
+                             "(only in CLI more for 'add' command)")
+
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
@@ -82,16 +93,16 @@ def parse_args():
 
     # Sanity checking of arguments
     try:
-        if conf['mode'] == 'http':
-            # Sanity checks if started in http mode
+        if conf['mode'] == 'watcher':
+            # Sanity checks for various options needed in watcher mode:
+            # - HTTP port and address
+            # - Route spec config file
             if not 0 < conf['port'] < 65535:
                 raise ArgsError("Invalid listen port '%d' for http mode." %
                                 conf['port'])
             if not conf['addr'] == "localhost":
                 # maybe a proper address was specified?
                 ip_check(conf['addr'])
-
-        elif conf['mode'] == 'watcher':
             if not conf['file']:
                 raise ArgsError("A config file needs to be specified (-f).")
             try:
@@ -150,8 +161,11 @@ def setup_logging(conf):
                             format='%(asctime)s - %(levelname)-8s - '
                                    '%(threadName)-11s - %(message)s')
 
-    # Don't want to see all the debug messages from BOTO
+    # Don't want to see all the debug messages from BOTO and watchdog
     logging.getLogger('boto').setLevel(logging.INFO)
+    logging.getLogger('watchdog.observers.inotify_buffer'). \
+                                                setLevel(logging.INFO)
+
 
 #
 # Main body of the executable.

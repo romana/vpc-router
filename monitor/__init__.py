@@ -144,7 +144,8 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
             live_ips_to_check = [ip for ip in list_of_ips if
                                  ip not in currently_failed_ips]
             logging.debug("Checking live IPs: %s" %
-                          ",".join(live_ips_to_check))
+                          (",".join(live_ips_to_check) if live_ips_to_check
+                                                       else "(none alive)"))
 
             # Independent of any updates: Perform health check on all IPs in
             # the working set and send messages out about any failed once as
@@ -166,6 +167,7 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
 
             time.sleep(interval)
             interval_count += 1
+
     except _StopReceived:
         # Received the stop signal, just exiting the thread function
         return
