@@ -53,6 +53,8 @@ class RouteSpecChangeEventHandler(FileSystemEventHandler):
 
         super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
 
+        logging.debug("Started config file change monitoring thread")
+
 
     def on_modified(self, event):
         if type(event) is FileModifiedEvent and \
@@ -228,49 +230,25 @@ def _update_health_monitor_with_new_ips(route_spec, all_ips,
     return all_ips
 
 
-def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
-                            sleep_time=1):
+def _event_monitor_loop(region_name, vpc_id,
+                        q_monitor_ips, q_failed_ips, q_route_spec,
+                        iterations, sleep_time):
     """
-    Start the VPC router as watcher, who listens for changes in a config file.
+    Monitor queues to receive updates about new route specs or any detected
+    failed IPs.
 
-    The config file describes a routing spec. The spec should provide a
-    destination CIDR and a set of hosts. The VPC router establishes a route to
-    the first host in the set for the given CIDR.
-
-    VPC router watches for any changes in the file and updates/adds/deletes
-    routes as necessary.
+    If any of those have updates, notify the health-monitor thread with a
+    message on a special queue and also re-process the entire routing table.
 
     The 'iterations' argument allows us to limit the running time of the watch
     loop for test purposes. Not used during normal operation. Also, for faster
     tests, sleep_time can be set to values less than 1.
 
-    This function starts three threads:
-
-    - "ConfMon":   A file-change observer on the route spec file.
-    - "HealthMon": Monitors health of instances mentioned in the route spec.
-    - "HttpSrv":   A small HTTP server providing status information.
-
-    It then drops into a loop to receive messages from the health monitoring
-    thread and re-process the config if any failed IPs are reported.
-
     """
-    # Start the health monitoring thread
-    monitor_thread, q_monitor_ips, q_failed_ips = \
-            _start_health_monitoring_thread(sleep_time)
-
-    # Start the config change monitoring thread
-    observer_thread, q_route_spec =  \
-            _start_config_change_detection_thread(fname, region_name, vpc_id)
-
-    # Start the HTTP server thread
-
-    # -------------------------------------------------------------
-    # Start the loop to process messages from the monitoring
-    # threads about any failed IP addresses or updated route specs.
     try:
         all_ips    = []  # a cache of the IP addresses we currently know about
         route_spec = {}
-        time.sleep(sleep_time*2)   # Wait to allow monitor to report results
+        time.sleep(sleep_time)   # Wait to allow monitor to report results
         while True:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
@@ -298,17 +276,94 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
                     break
 
             time.sleep(sleep_time)
-
     except KeyboardInterrupt:
         # Allow exit via keyboard interrupt, useful during development
         pass
 
-    logging.debug("Stopping config change observer...")
-    observer_thread.stop()   # Stop signal for config watcher thread
-    logging.debug("Stopping health-check monitor...")
-    q_monitor_ips.put(None)  # Stop signal to monitor thread
 
-    observer_thread.join()
-    monitor_thread.join()
+def _start_working_threads(fname, region_name, vpc_id, sleep_time):
+    """
+    Start the working threads:
+    - Health monitor
+    - Config change monitor
+
+    Return dict with thread info and the message queues that were created for
+    them.
+
+    """
+    # Start the health monitoring thread
+    monitor_thread, q_monitor_ips, q_failed_ips = \
+            _start_health_monitoring_thread(sleep_time)
+
+    # Start the config change monitoring thread
+    observer_thread, q_route_spec =  \
+            _start_config_change_detection_thread(fname, region_name, vpc_id)
+
+    # Start the HTTP server thread
+
+    #Starting of the HTTP server should happen here
+
+    return {
+               "monitor_thread"  : monitor_thread,
+               "observer_thread" : observer_thread,
+               "q_monitor_ips"   : q_monitor_ips,
+               "q_failed_ips"    : q_failed_ips,
+               "q_route_spec"    : q_route_spec
+           }
+
+
+def _stop_working_threads(thread_info):
+    """
+    Stops and collects the workin threads.
+
+    Needs the thread-info dict created by _start_working_threads().
+
+    """
+    logging.debug("Stopping config change observer...")
+    thread_info['observer_thread'].stop()   # Stop signal for config watcher
+    logging.debug("Stopping health-check monitor...")
+    thread_info['q_monitor_ips'].put(None)  # Stop signal for health monitor
+
+    thread_info['observer_thread'].join()
+    thread_info['monitor_thread'].join()
+
+
+def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
+                            sleep_time=1):
+    """
+    Start the VPC router as watcher, who listens for changes in a config file.
+
+    The config file describes a routing spec. The spec should provide a
+    destination CIDR and a set of hosts. The VPC router establishes a route to
+    the first host in the set for the given CIDR.
+
+    VPC router watches for any changes in the file and updates/adds/deletes
+    routes as necessary.
+
+    This function starts three threads:
+
+    - "ConfMon":   A file-change observer on the route spec file.
+    - "HealthMon": Monitors health of instances mentioned in the route spec.
+    - "HttpSrv":   A small HTTP server providing status information.
+
+    It then drops into a loop to receive messages from the health monitoring
+    thread and re-process the config if any failed IPs are reported.
+
+    The loop itself is in its own function to facilitate easier testing.
+
+    """
+    # Start the working threads (health monitor, config event monitor, etc.)
+    # and return the thread handles and message queues in a thread-info dict.
+    tinfo = _start_working_threads(fname, region_name, vpc_id, sleep_time)
+
+    # Start the loop to process messages from the monitoring
+    # threads about any failed IP addresses or updated route specs.
+    _event_monitor_loop(region_name, vpc_id,
+                        tinfo['q_monitor_ips'], tinfo['q_failed_ips'],
+                        tinfo['q_route_spec'],
+                        iterations, sleep_time)
+
+    # Stopping and collecting all worker threads when we are done
+    _stop_working_threads(tinfo)
 
 

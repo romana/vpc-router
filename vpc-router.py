@@ -188,9 +188,9 @@ if __name__ == "__main__":
                                     conf['file'])
         else:
             # One off run from the command line
-            msg, found = handle_request(
+            found = handle_request(
                 conf['region_name'], conf['vpc_id'], conf['command'],
-                conf['router_ip'], conf['dst_cidr'], conf['mode'] != 'cli')
+                conf['router_ip'], conf['dst_cidr'])
             if found:
                 sys.exit(0)
             else:

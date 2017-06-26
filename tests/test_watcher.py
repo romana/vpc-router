@@ -101,6 +101,8 @@ class TestRouteSpec(unittest.TestCase):
 
             # Check that we received the right log messages about the file
             self.lc.check(
+                ('root', 'DEBUG',
+                 'Started config file change monitoring thread'),
                 ('root', 'INFO',
                  'Detected file change event for %s' % abs_fname),
                 ('root', 'ERROR',
@@ -168,18 +170,15 @@ class TestRouteSpec(unittest.TestCase):
               'Config file ignored: Expected dictionary at top level'))
 
 
-"""
-Currently commented out: Async behaviour of threads make this difficult to
-test. Need to work on testability of this code...
-
 class TestWatcher(unittest.TestCase):
 
     def setUp(self):
         self.lc = LogCapture()
-        self.lc.setLevel(logging.INFO)
+        self.lc.setLevel(logging.DEBUG)
         self.lc.addFilter(MyFilter())
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.cleanup)
+        self.abs_fname = self.temp_dir + "/r.spec"
 
         self.old_handle_spec = vpc.handle_spec
         # Monkey patch the handle_spec function, which is called by the
@@ -205,102 +204,107 @@ class TestWatcher(unittest.TestCase):
 
     def cleanup(self):
         self.lc.uninstall()
-        shutil.rmtree(self.temp_dir)
         watcher.handle_spec = vpc.handle_spec = self.old_handle_spec
+        shutil.rmtree(self.temp_dir)
+
+
+    def test_watcher_thread_no_config(self):
+        self.tinfo = watcher._start_working_threads(
+                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
+
+        time.sleep(0.5)
+        # Config file doesn't exist yet, so we should get an error.
+        # Health monitor is started with a second delay, so no messages from
+        # there, yet.
+        self.lc.check(
+            ('root',
+             'ERROR',
+             "Config file ignored: Cannot open file: [Errno 2] No such file or directory: '%s'" % self.abs_fname),
+            ('root', 'DEBUG', 'Started config file change monitoring thread'))
+
+        watcher._stop_working_threads(self.tinfo)
+
+
+    def test_watcher_thread_wrong_config(self):
+        inp = "MALFORMED"
+        with open(self.abs_fname, "w+") as f:
+            f.write(json.dumps(inp))
+
+        self.tinfo = watcher._start_working_threads(
+                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
+
+        time.sleep(0.5)
+        # Config file doesn't exist yet, so we should get an error.
+        self.lc.check(
+            ('root', 'ERROR',
+             'Config file ignored: Expected dictionary at top level'),
+            ('root', 'DEBUG', 'Started config file change monitoring thread'))
+
+        watcher._stop_working_threads(self.tinfo)
 
 
     def test_watcher_thread(self):
-        #
-        # Test the full watcher thread.
-        #
-        abs_fname = self.temp_dir + "/r.spec"
-        test_specs = [
-            {
-                "inp" : {
-                            u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
-                            u"10.2.0.0/16" : [ u"3.3.3.3" ]
-                        },
-                "log" : (
-                     ('root', 'INFO',
-                      'Detected file change event for %s' % abs_fname),
-                     ('root', 'INFO',
-                      'Currently failed IPs: 3.3.3.3'))
-            },
-            {
-                # This is malformed and should be ignored
-                "inp" : {
-                            u"10.1./16" : [ "FOO" ],
-                        },
-                "log" : (
-                     ('root', 'INFO',
-                      'Detected file change event for %s' % abs_fname),
-                     ('root', 'ERROR',
-                      'Config file ignored: Not a valid CIDR (10.1./16)'),
-                     ('root', 'INFO',
-                      'Currently failed IPs: 3.3.3.3'))
-            },
-            {
-                "inp" : {
-                            u"10.1.0.0/16" : [ u"1.1.1.1", u"3.4.5.6" ],
-                        },
-                "log" : (
-                     ('root', 'INFO',
-                      'Detected file change event for %s' % abs_fname),
-                     ('root', 'INFO',
-                      ['Currently failed IPs', '3.4.5.6']))
-            },
-        ]
+        inp = {
+                  u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
+                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+              }
+        with open(self.abs_fname, "w+") as f:
+            f.write(json.dumps(inp))
 
-        wt = threading.Thread(target=watcher.start_daemon_as_watcher,
-                              args=("foo-region", "vpc-123", abs_fname),
-                              kwargs={ 'iterations' : 30, 'sleep_time' : 0.2})
-        wt.daemon = True
-        wt.start()
+        self.tinfo = watcher._start_working_threads(
+                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
 
-        time.sleep(3)   # need to have sleeps here and there to allow the
-                        # monitor threads to catch up
+        time.sleep(1)
+        self.lc.check(
+             ('root', 'DEBUG', 'Started config file change monitoring thread'),
+             ('root', 'DEBUG', 'Started health monitoring thread'),
+             ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
+        self.lc.clear()
 
-        for test_data in test_specs:
-            # Write new spec definition to file, should result in file event
-            # change being captured and processed, resulting in a call to
-            # handle_spec.
-            self.lc.clear()
-            with open(abs_fname, "w+") as f:
-                f.write(json.dumps(test_data['inp']))
-            time.sleep(5)
-            # Can't use normal 'check' method of the LogCapture object: Our
-            # logs are created by different threads and may appear in somewhat
-            # random order.
-            recs = [ (r.name, r.levelname, r.msg) for r in self.lc.records ]
-            print "@@@ recs: ", recs
-            print "@@@ td:   ", test_data['log']
-            for td in test_data['log']:
-                if type(td[2]) is list:
-                    # In that case, just make sure that the fragments are in
-                    # the message
-                    found_it = False
-                    for r in recs:
-                        if td[0] == r[0]  and  td[1] == r[1]:
-                            frag_match = True
-                            for frag in td[2]:
-                                if frag not in r[2]:
-                                    frag_match = False
-                            if frag_match:
-                                found_it = True
-                                break
-                    if not found_it:
-                        self.assertFalse(
-                            "Couldn't find: %s\n... in logs: " %
-                            (td, recs))
-                else:
-                    # Find the full message in the logs
-                    self.assertTrue(td in recs)
+        watcher._event_monitor_loop(
+            "dummy-region", "dummy-vpc",
+            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
+            self.tinfo['q_route_spec'],
+            iterations=1, sleep_time=0.5)
 
+        time.sleep(2)
 
+        self.lc.check(
+            ('root', 'DEBUG',
+             'New route spec detected. Updating health-monitor '
+             'with: 1.1.1.1,2.2.2.2,3.3.3.3'),
+            ('root', 'DEBUG', u'Checking live IPs: 1.1.1.1,2.2.2.2,3.3.3.3'),
+            ('root', 'INFO', u'Currently failed IPs: 3.3.3.3'))
+        self.lc.clear()
 
-        wt.join()
+        inp = {
+                  u"10.1.0.0/16" : [ u"4.4.4.4", u"2.2.2.2" ],
+                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+              }
+        with open(self.abs_fname, "w+") as f:
+            f.write(json.dumps(inp))
 
-"""
+        time.sleep(2)
+        self.lc.check(
+            ('root', 'INFO',
+             'Detected file change event for %s' % self.abs_fname),
+            ('root', 'DEBUG', 'Checking live IPs: 1.1.1.1,2.2.2.2'))
+        self.lc.clear()
+
+        watcher._event_monitor_loop(
+            "dummy-region", "dummy-vpc",
+            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
+            self.tinfo['q_route_spec'],
+            iterations=1, sleep_time=0.5)
+
+        time.sleep(2)
+        self.lc.check(
+            ('root', 'DEBUG',
+             'New route spec detected. Updating health-monitor '
+             'with: 2.2.2.2,3.3.3.3,4.4.4.4'),
+            ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
+
+        watcher._stop_working_threads(self.tinfo)
 
 
 if __name__ == '__main__':

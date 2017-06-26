@@ -123,6 +123,9 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
     as a stop signal and the function exits.
 
     """
+    time.sleep(1)
+    logging.debug("Started health monitoring thread")
+
     # This is our working set. This list may be updated occasionally when we
     # receive messages on the q_monitor_ips queue. But irrespective of any
     # received updates, the list of IPs in here is regularly checked.
@@ -156,7 +159,7 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
                     q_failed_ips.put(failed_ips)
                     # Update list of currently failed IPs with any new ones
                     currently_failed_ips.update(failed_ips)
-                    logging.info("Currently failed IPs: %s" %
+                    logging.info('Currently failed IPs: %s' %
                                  ",".join(currently_failed_ips))
 
             if interval_count == recheck_failed_interval:
