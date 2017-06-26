@@ -116,18 +116,6 @@ def read_route_spec_config(fname):
     return data
 
 
-def _process_route_spec(route_spec, region_name, vpc_id, failed_ips):
-    """
-    Processes a full route spec. Update routes.
-
-    """
-    try:
-        handle_spec(region_name, vpc_id, route_spec, failed_ips)
-        # Get all the hosts, independent of route they belong to
-    except VpcRouteSetError as e:
-        logging.error("Cannot set route: %s" % str(e))
-
-
 def _start_health_monitoring_thread(sleep_time):
     """
     Start the thread that montors the health of instances.
@@ -245,11 +233,11 @@ def _event_monitor_loop(region_name, vpc_id,
     tests, sleep_time can be set to values less than 1.
 
     """
-    try:
-        all_ips    = []  # a cache of the IP addresses we currently know about
-        route_spec = {}
-        time.sleep(sleep_time)   # Wait to allow monitor to report results
-        while True:
+    all_ips    = []  # a cache of the IP addresses we currently know about
+    route_spec = {}
+    time.sleep(sleep_time)   # Wait to allow monitor to report results
+    while True:
+        try:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
             # immediately have been initialized with a first message.
@@ -266,8 +254,8 @@ def _event_monitor_loop(region_name, vpc_id,
 
             # Spec of list of failed IPs changed? Update routes...
             if new_route_spec or failed_ips:
-                _process_route_spec(route_spec, region_name, vpc_id,
-                                    failed_ips if failed_ips else [])
+                handle_spec(region_name, vpc_id, route_spec,
+                            failed_ips if failed_ips else [])
 
             # If iterations are provided, count down and exit
             if iterations is not None:
@@ -276,9 +264,13 @@ def _event_monitor_loop(region_name, vpc_id,
                     break
 
             time.sleep(sleep_time)
-    except KeyboardInterrupt:
-        # Allow exit via keyboard interrupt, useful during development
-        pass
+        except KeyboardInterrupt:
+            # Allow exit via keyboard interrupt, useful during development
+            return
+        except Exception as e:
+            # Of course we should never get here, but if we do, better to log
+            # it and keep operating best we can...
+            logging.error("*** Uncaught exception 1: %s" % str(e))
 
 
 def _start_working_threads(fname, region_name, vpc_id, sleep_time):

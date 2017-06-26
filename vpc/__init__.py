@@ -124,12 +124,12 @@ def get_instance_private_ip_from_route(instance, route):
     return ipaddr, eni
 
 
-def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr):
+def manage_route(con, vpc_info, cmd, ip, cidr):
     """
-    Set, delete or show the route to the specified instance.
+    Set, delete or show the route to the instance, specified by IP address.
 
-    For show and delete only the CIDR is needed (instance, eni and ip can
-    be None).
+    For show and delete only the CIDR is needed (the IP address can be left
+    as None).
 
     For now, we set the same route in all route tables.
 
@@ -138,6 +138,11 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr):
     thrown.
 
     """
+    if ip:
+        instance, eni = find_instance_and_emi_by_ip(vpc_info, ip)
+    else:
+        instance = eni = None
+
     found   = True
     cmd_str = {
         "show" : "Searching for",
@@ -201,7 +206,7 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr):
                 logging.info("--- did not find route in RT '%s'" % rt.id)
                 found = False
             elif cmd == "add":
-                logging.info("--- adding route in RT '%s'"
+                logging.info("--- adding route in RT '%s' "
                              "%s -> %s (%s, %s)" %
                              (rt.id, cidr, ip, instance.id, eni.id))
                 con.create_route(route_table_id         = rt.id,
@@ -366,10 +371,10 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
         process_route_spec_config(con, vpc_info, route_spec, failed_ips)
         con.close()
     except boto.exception.StandardError as e:
-        raise VpcRouteSetError("AWS API: " + e.message)
+        logging.warning("VCould not set route: %s" % e.message)
 
     except boto.exception.NoAuthHandlerFound:
-        raise VpcRouteSetError("AWS API: vpc-router could not authenticate")
+        logging.error("vpc-router could not authenticate")
 
 
 def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
@@ -389,12 +394,7 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        if router_ip:
-            instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
-        else:
-            instance = eni = None
-        found = manage_route(con, vpc_info, instance, eni,
-                             cmd, router_ip, dst_cidr)
+        found    = manage_route(con, vpc_info, cmd, router_ip, dst_cidr)
         con.close()
 
         return found

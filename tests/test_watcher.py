@@ -24,7 +24,6 @@ import json
 import logging
 import shutil
 import tempfile
-import threading
 import time
 import unittest
 
