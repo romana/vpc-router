@@ -261,7 +261,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # Add new route, remove old one
         route_spec = {
-                         u"10.2.0.0/16" : [ self.i1ip ],
+                         u"10.2.0.0/16" : [ self.i1ip ]
                      }
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
@@ -276,6 +276,35 @@ class TestVpcBotoInteractions(unittest.TestCase):
              "--- adding route in RT '%s' "
              "10.2.0.0/16 -> %s (%s, %s)" %
              (rt_id, self.i1ip, i1.id, eni1.id)))
+
+
+    @mock_ec2_deprecated
+    def test_handle_spec(self):
+        self.make_mock_vpc()
+
+        # Need to take a peek inside the VPC so we can properly evaluate the
+        # output later on
+        con = vpc.connect_to_region("ap-southeast-2")
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        i, eni = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
+        rt_id = d['route_tables'][0].id
+
+
+        route_spec = {
+                         u"10.2.0.0/16" : [ self.i1ip ]
+                     }
+
+        # Test handle_spec
+        vid = self.new_vpc.id
+        self.lc.clear()
+        vpc.handle_spec("ap-southeast-2", vid, route_spec, [])
+        self.lc.check(
+            ('root', 'DEBUG', 'Handle route spec'),
+            ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
+            ('root', 'DEBUG', u"Retrieving information for VPC '%s'" % vid),
+            ('root', 'INFO',
+             "--- adding route in RT '%s' 10.2.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, self.i1.id, eni.id)))
 
 
 if __name__ == '__main__':
