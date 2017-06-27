@@ -77,7 +77,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
 
     @mock_ec2_deprecated
-    def make_test_vpc(self):
+    def make_mock_vpc(self):
         """
         Use plain (but mocked) boto functions to create a small VPC with two
         subnets and two instances as a basis for our tests.
@@ -90,7 +90,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Note that moto doesn't seem to honor the subnet and VPC address
         # ranges, it seems all instances always get something random from a
         # 10/8 range.
-        self.new_vpc = con.create_vpc('10.0.0.0/24')
+        self.new_vpc = con.create_vpc('10.0.0.0/16')
         self.new_subnet_a = con.create_subnet(self.new_vpc.id, '10.1.0.0/16')
         self.new_subnet_b = con.create_subnet(self.new_vpc.id, '10.2.0.0/16')
 
@@ -106,7 +106,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_connect(self):
-        self.make_test_vpc()
+        self.make_mock_vpc()
 
         # With a test VPC created, we now test our own functions
 
@@ -134,7 +134,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_route_creation(self):
-        self.make_test_vpc()
+        self.make_mock_vpc()
 
         # With a test VPC created, we now test our own functions
 
