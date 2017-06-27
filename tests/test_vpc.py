@@ -133,7 +133,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
                         self.i2.id)
 
     @mock_ec2_deprecated
-    def test_route_creation(self):
+    def test_route_add_del_show(self):
         self.make_mock_vpc()
 
         # With a test VPC created, we now test our own functions
@@ -142,7 +142,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
         vpc.manage_route(con, d, "add", self.i1ip, "10.55.0.0/16")
-
         i, eni = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
         self.lc.check(
             ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
@@ -152,32 +151,131 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'INFO',
              "--- adding route in RT '%s' 10.55.0.0/16 -> %s (%s, %s)" %
              (d['route_tables'][0].id, self.i1ip, self.i1.id, eni.id )))
-        self.lc.clear()
 
-        # Unknown instance IP: Should throw exception
+        # Adding the route again should give us a message that the route exists
+        # already. Because moto doesn't seem to store the eni with the route
+        # correctly, we can't detect that we have the exact route already, so
+        # it shows as 'different destination'.
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.manage_route(con, d, "add", self.i1ip, "10.55.0.0/16")
+        self.lc.check(
+            ('root', 'DEBUG', 'Adding route: 10.55.0.0/16'),
+            ('root', 'INFO',
+             "--- route exists already in RT '%s', but with "
+             "different destination: 10.55.0.0/16 -> %s (%s, %s)" %
+             (d['route_tables'][0].id, self.i1ip, self.i1.id, eni.id)))
+
+        # Adding with unknown instance IP: Should throw exception
         self.assertRaises(errors.VpcRouteSetError,
                           vpc.manage_route,
                           con, d, "add", "8.8.8.8", "10.55.0.0/16")
 
+        # Listing the route
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
-        vpc.manage_route(con, d, "del", None, "10.55.0.0/16")
+        self.lc.clear()
+        vpc.manage_route(con, d, "show", None, "10.55.0.0/16")
         # See the 'unknown' in the log messages? This is normally the IP
         # address associated with the eni, but it seems as if moto doesn't
         # quite set this correctly.
         self.lc.check(
-            ('root', 'DEBUG',
-             "Retrieving information for VPC '%s'" % d['vpc'].id),
+            ('root', 'DEBUG', 'Searching for route: 10.55.0.0/16'),
+            ('root', 'INFO',
+             "--- route exists in RT '%s': "
+             "10.55.0.0/16 -> (unknown) (%s, %s)" %
+             (d['route_tables'][0].id, self.i1.id, eni.id)))
+
+        # Deleting the route
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.manage_route(con, d, "del", None, "10.55.0.0/16")
+        self.lc.check(
             ('root', 'DEBUG', 'Deleting route: 10.55.0.0/16'),
             ('root', 'INFO',
              "--- deleting route in RT '%s': 10.55.0.0/16 -> "
              "(unknown) (%s, %s)" %
              (d['route_tables'][0].id, self.i1.id, eni.id)))
 
+        # Now try to delete the same route again: Error
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.manage_route(con, d, "del", None, "10.55.0.0/16")
+        self.lc.check(
+            ('root', 'DEBUG', 'Deleting route: 10.55.0.0/16'),
+            ('root', 'INFO',
+             "--- did not find route in RT '%s'" %
+             (d['route_tables'][0].id)))
 
 
+    @mock_ec2_deprecated
+    def test_process_route_spec_config(self):
+        self.make_mock_vpc()
 
+        con = vpc.connect_to_region("ap-southeast-2")
 
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
+        i1, eni1 = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
+        i2, eni2 = vpc.find_instance_and_emi_by_ip(d, self.i2ip)
+
+        rt_id = d['route_tables'][0].id
+
+        route_spec = {
+                         u"10.1.0.0/16" : [ self.i1ip, self.i2ip ],
+                     }
+
+        # Process a simple route spec, a route should have been added
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [])
+        self.lc.check(
+            ('root', 'INFO',
+             "--- adding route in RT '%s' "
+             "10.1.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
+
+        # One of the two IPs failed, switch over
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [ self.i1ip ])
+        self.lc.check(
+            ('root', 'DEBUG',
+             'Route spec processing. Failed IPs: %s' % self.i1ip),
+            ('root', 'INFO',
+             "--- route exists already in RT '%s', "
+             "but with different destination: updating "
+             "10.1.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i2ip, i2.id, eni2.id)))
+
+        # Now all IPs for a route have failed
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec,
+                                      [ self.i1ip, self.i2ip ])
+        self.lc.check(
+            ('root', 'DEBUG',
+             'Route spec processing. Failed IPs: %s,%s' %
+             (self.i1ip, self.i2ip)),
+            ('root', 'WARNING',
+             '--- cannot find available target for route 10.1.0.0/16! '
+             'Nothing I can do...'))
+
+        # Add new route, remove old one
+        route_spec = {
+                         u"10.2.0.0/16" : [ self.i1ip ],
+                     }
+
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [])
+        self.lc.check(
+            ('root', 'INFO',
+             "--- route not in spec, deleting in RT '%s': "
+             "10.1.0.0/16 -> ... (%s, %s)" %
+             (rt_id, i2.id, eni2.id)),
+            ('root', 'INFO',
+             "--- adding route in RT '%s' "
+             "10.2.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
 
 
 if __name__ == '__main__':
