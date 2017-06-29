@@ -24,7 +24,7 @@ within a specified VPC.
 This program was developed for the [Romana project](http://romana.io) to 
 overcome the limit imposed on VPC route table entries (50 by default), which limits the size of clusters.  Avoiding this limit typically required running an overlay network, which does not offer the performance and visibility of native VPC networking. vpc-router also allows Romana to apply network policy to clusters that span multiple Availability Zones (AZs) without an overlay. 
 
-While vpc-router was specifically designed to for use with Romana and these Kubernetes deployment scenarios, it does not depend on either project and can also be used stand-alone.
+While vpc-router was specifically designed for use with Romana and to take advantage of it's topology aware IPAM in these Kubernetes deployment scenarios, it does not depend on either project and can also be used stand-alone.
 
 ## Installation
 
