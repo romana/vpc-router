@@ -22,7 +22,6 @@ import logging
 import sys
 
 from errors  import ArgsError, VpcRouteSetError
-from http    import start_daemon_with_http_api
 from utils   import ip_check
 from vpc     import handle_request
 from watcher import start_watcher
