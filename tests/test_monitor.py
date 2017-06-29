@@ -46,7 +46,7 @@ class TestQueues(unittest.TestCase):
         # the usual socket error, which we would get if the IP address is
         # malformed or the name cannot be resolved. For all other addresses we
         # return a floating point value (the ping time), indicating success.
-        def new_do_one(ip, timeout, size):
+        def new_do_one(ip, timeout, dummy_id, size):
             if ip.startswith(_FAILED_PREFIX):
                 return None
             elif ip.startswith("333."):
@@ -56,7 +56,7 @@ class TestQueues(unittest.TestCase):
         # Now we install this new ping function in place of the original one.
         # Clearly, this is a white box test: We know about the inner working of
         # the monitoring module in order to perform our monkey patch.
-        ping.do_one = new_do_one
+        monitor.my_do_one = new_do_one
 
         # Setup the monitor thread with a small monitoring interval (all
         # local, no real pings). We get back the thread and the two
