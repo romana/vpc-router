@@ -18,7 +18,6 @@ limitations under the License.
 #
 # Unit tests for the watcher module
 #
-import ping
 
 import json
 import logging
@@ -27,12 +26,13 @@ import tempfile
 import time
 import unittest
 
-import watcher
-import vpc
-
 from logging import Filter
 from testfixtures       import LogCapture
 from watchdog.observers import Observer
+
+import monitor
+import watcher
+import vpc
 
 RES = None
 
@@ -73,10 +73,10 @@ class TestRouteSpec(unittest.TestCase):
 
         with open(abs_fname, "w+") as f:
             myq = MyQueue()
-            handler = watcher.RouteSpecChangeEventHandler(
-                                          route_spec_fname   = "r.spec",
-                                          route_spec_abspath = abs_fname,
-                                          q_route_spec       = myq)
+            handler = watcher.configfile.RouteSpecChangeEventHandler(
+                                              route_spec_fname   = "r.spec",
+                                              route_spec_abspath = abs_fname,
+                                              q_route_spec       = myq)
             # Install the file observer on the directory
             observer_thread = Observer()
             observer_thread.schedule(handler, self.temp_dir)
@@ -144,29 +144,13 @@ class TestRouteSpec(unittest.TestCase):
         ]
 
         for test_data in test_specs:
-            abs_fname = self.temp_dir + "/r.spec"
-            with open(abs_fname, "w+") as f:
-                f.write(json.dumps(test_data['inp']))
-
-            res = watcher.read_route_spec_config(abs_fname)
-            if test_data['res'] == "IDENT":
-                # Expect same output as input
-                out = test_data['inp']
-            elif test_data['res'] is None:
-                # If input is malformed we expect None as return
-                self.assertTrue(res is None)
-                continue
-
-            # Compare expected result with real data
-            self.assertEqual(out, res)
-
-        self.lc.check(
-             ('root', 'ERROR',
-              'Config file ignored: Expect list of IPs as values in dict'),
-             ('root', 'ERROR',
-              'Config file ignored: Not a valid IP address (1.1.1.)'),
-             ('root', 'ERROR',
-              'Config file ignored: Expected dictionary at top level'))
+            if test_data['res'] is None:
+                self.assertRaises(ValueError,
+                                  watcher.util.parse_route_spec_config,
+                                  test_data['inp'])
+            else:  # if output should be identical
+                res = watcher.util.parse_route_spec_config(test_data['inp'])
+                self.assertEqual(res, test_data['inp'])
 
 
 class TestWatcher(unittest.TestCase):
@@ -178,6 +162,12 @@ class TestWatcher(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.cleanup)
         self.abs_fname = self.temp_dir + "/r.spec"
+        self.conf = {
+            "file"        : self.abs_fname,
+            "region_name" : "dummy-region",
+            "vpc_id"      : "dummy-vpc",
+            "mode"        : "conffile"
+        }
 
         self.old_handle_spec = vpc.handle_spec
         # Monkey patch the handle_spec function, which is called by the
@@ -193,12 +183,12 @@ class TestWatcher(unittest.TestCase):
         # Monkey patch the do_one ping method, since we don't really want to
         # send out ICMP echo requests when we run the tests. Will indicate
         # failure for all IP addresses starting with "3."
-        def new_do_one(ip, timeout, size):
+        def new_do_one(ip, timeout, dummy_id, size):
             if ip.startswith("3."):
                 return None    # indicates failure
             else:
                 return 0.5     # indicates success
-        ping.do_one = new_do_one
+        monitor.my_do_one = new_do_one
 
 
     def cleanup(self):
@@ -208,8 +198,7 @@ class TestWatcher(unittest.TestCase):
 
 
     def test_watcher_thread_no_config(self):
-        self.tinfo = watcher._start_working_threads(
-                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
 
         time.sleep(0.5)
         # Config file doesn't exist yet, so we should get an error.
@@ -218,7 +207,8 @@ class TestWatcher(unittest.TestCase):
         self.lc.check(
             ('root',
              'ERROR',
-             "Config file ignored: Cannot open file: [Errno 2] No such file or directory: '%s'" % self.abs_fname),
+             "Config file ignored: Cannot open file: "
+             "[Errno 2] No such file or directory: '%s'" % self.abs_fname),
             ('root', 'DEBUG', 'Started config file change monitoring thread'))
 
         watcher._stop_working_threads(self.tinfo)
@@ -229,8 +219,7 @@ class TestWatcher(unittest.TestCase):
         with open(self.abs_fname, "w+") as f:
             f.write(json.dumps(inp))
 
-        self.tinfo = watcher._start_working_threads(
-                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
 
         time.sleep(0.5)
         # Config file doesn't exist yet, so we should get an error.
@@ -250,10 +239,9 @@ class TestWatcher(unittest.TestCase):
         with open(self.abs_fname, "w+") as f:
             f.write(json.dumps(inp))
 
-        self.tinfo = watcher._start_working_threads(
-                            self.abs_fname, "dummy-region", "dummy-vpc", 2)
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
 
-        time.sleep(1)
+        time.sleep(2)
         self.lc.check(
              ('root', 'DEBUG', 'Started config file change monitoring thread'),
              ('root', 'DEBUG', 'Started health monitoring thread'),
@@ -283,11 +271,16 @@ class TestWatcher(unittest.TestCase):
         with open(self.abs_fname, "w+") as f:
             f.write(json.dumps(inp))
 
-        time.sleep(2)
+        time.sleep(1)
+        """
+        Remove this check: The log messages may come through in a different
+        order, which isn't a problem.
+
         self.lc.check(
             ('root', 'INFO',
              'Detected file change event for %s' % self.abs_fname),
             ('root', 'DEBUG', 'Checking live IPs: 1.1.1.1,2.2.2.2'))
+        """
         self.lc.clear()
 
         watcher._event_monitor_loop(

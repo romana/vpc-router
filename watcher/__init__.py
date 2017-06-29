@@ -20,100 +20,14 @@ limitations under the License.
 #
 
 import itertools
-import json
 import logging
-import os
 import Queue
 import time
 
-from errors  import ArgsError, VpcRouteSetError
 from monitor import start_monitor_in_background
-from utils   import ip_check
 from vpc     import handle_spec
 
-from bottle             import route, run, request, response
-from watchdog.events    import FileSystemEventHandler, FileModifiedEvent
-from watchdog.observers import Observer
-
-
-class RouteSpecChangeEventHandler(FileSystemEventHandler):
-    """
-    Our own event handler class, to be used to process events on the route-spec
-    file.
-
-    """
-    def __init__(self, *args, **kwargs):
-        self._route_spec_fname   = kwargs['route_spec_fname']
-        self._route_spec_abspath = kwargs['route_spec_abspath']
-        self._q_route_spec       = kwargs['q_route_spec']
-
-        del kwargs['route_spec_fname']
-        del kwargs['route_spec_abspath']
-        del kwargs['q_route_spec']
-
-        super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
-
-        logging.debug("Started config file change monitoring thread")
-
-
-    def on_modified(self, event):
-        if type(event) is FileModifiedEvent and \
-                                    event.src_path == self._route_spec_abspath:
-            logging.info("Detected file change event for %s" %
-                          self._route_spec_abspath)
-            try:
-                route_spec = read_route_spec_config(self._route_spec_fname)
-                self._q_route_spec.put(route_spec)
-            except ValueError as e:
-                # In case of error in the config file, we don't send out a
-                # message with a broken or empty list. Probably just temporary,
-                # shouldn't stop operation of the system.
-                logging.warning("Cannot parse route spec: %s" % str(e))
-
-
-
-def read_route_spec_config(fname):
-    """
-    Read, parse and sanity check the route spec config file.
-
-    The config file needs to be in this format:
-
-    {
-        "<CIDR-1>" : [ "host-1-ip", "host-2-ip", "host-3-ip" ],
-        "<CIDR-2>" : [ "host-4-ip", "host-5-ip" ],
-        "<CIDR-3>" : [ "host-6-ip", "host-7-ip", "host-8-ip", "host-9-ip" ]
-    }
-
-    Returns the validated route config.
-
-    """
-    try:
-        try:
-            f = open(fname, "r")
-        except IOError as e:
-            # Cannot open file? Doesn't exist?
-            raise ValueError("Cannot open file: " + str(e))
-        data = json.loads(f.read())
-        f.close()
-        # Sanity checking on the data object
-        if type(data) is not dict:
-            raise ValueError("Expected dictionary at top level")
-        try:
-            for k, v in data.items():
-                ip_check(k, netmask_expected=True)
-                if type(v) is not list:
-                    raise ValueError("Expect list of IPs as values in dict")
-                for ip in v:
-                    ip_check(ip)
-
-        except ArgsError as e:
-            raise ValueError(e.message)
-
-    except ValueError as e:
-        logging.error("Config file ignored: %s" % str(e))
-        data = None
-
-    return data
+from . import configfile
 
 
 def _start_health_monitoring_thread(sleep_time):
@@ -132,43 +46,20 @@ def _start_health_monitoring_thread(sleep_time):
     return monitor_thread, q_monitor_ips, q_failed_ips
 
 
-def _start_config_change_detection_thread(fname, region_name, vpc_id):
+def _start_config_http_srv_thread(conf):
     """
-    Monitor the route spec file for any changes.
+    Listen for route spec updates via a small http server.
 
-    Returns a 3-tuple with the handle on the observer thread, a queue on which
-    it communicates the full route spec whenever it changes.
+    Returns a tuple with the handle on the http server thread and a queue on
+    which it communicates the full route spec whenever it changes.
 
     """
+    addr        = conf['addr']
+    port        = conf['port']
+    region_name = conf['region_name']
+    vpc_id      = conf['vpc_id']
+
     q_route_spec = Queue.Queue()
-    # Initial content of file needs to be processed at least once, before we
-    # start watching for any changes to it. Therefore, we will write it out on
-    # the queue right away.
-    route_spec = {}
-    try:
-        route_spec = read_route_spec_config(fname)
-        if route_spec:
-            q_route_spec.put(route_spec)
-    except ValueError as e:
-        logging.warning("Cannot parse route spec: %s" % str(e))
-
-
-    # Now prepare to watch for any changes in that file.
-    # Find the parent directory of the config file, since this is where we will
-    # attach a watcher to.
-    abspath    = os.path.abspath(fname)
-    parent_dir = os.path.dirname(abspath)
-
-    # Create the file watcher and run in endless loop
-    handler = RouteSpecChangeEventHandler(route_spec_fname   = fname,
-                                          route_spec_abspath = abspath,
-                                          q_route_spec       = q_route_spec)
-    observer_thread = Observer()
-    observer_thread.name = "ConfMon"
-    observer_thread.schedule(handler, parent_dir)
-    observer_thread.start()
-
-    return observer_thread, q_route_spec
 
 
 def _read_last_msg_from_queue(q):
@@ -273,11 +164,11 @@ def _event_monitor_loop(region_name, vpc_id,
             logging.error("*** Uncaught exception 1: %s" % str(e))
 
 
-def _start_working_threads(fname, region_name, vpc_id, sleep_time):
+def _start_working_threads(conf, sleep_time):
     """
     Start the working threads:
     - Health monitor
-    - Config change monitor
+    - Config change monitor (either file watch or http)
 
     Return dict with thread info and the message queues that were created for
     them.
@@ -287,13 +178,14 @@ def _start_working_threads(fname, region_name, vpc_id, sleep_time):
     monitor_thread, q_monitor_ips, q_failed_ips = \
             _start_health_monitoring_thread(sleep_time)
 
-    # Start the config change monitoring thread
-    observer_thread, q_route_spec =  \
-            _start_config_change_detection_thread(fname, region_name, vpc_id)
-
-    # Start the HTTP server thread
-
-    #Starting of the HTTP server should happen here
+    if conf['mode'] == "conffile":
+        # Start the config change monitoring thread
+        observer_thread, q_route_spec =  \
+            configfile.start_config_change_detection_thread(
+                conf['file'], conf['region_name'], conf['vpc_id'])
+    elif conf['mode'] == "http":
+        # Start the http server to listen for route spec updates
+        observer_thread, q_route_spec = _start_config_http_srv_thread(conf)
 
     return {
                "monitor_thread"  : monitor_thread,
@@ -320,17 +212,15 @@ def _stop_working_threads(thread_info):
     thread_info['monitor_thread'].join()
 
 
-def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
-                            sleep_time=1):
+def start_watcher(conf, iterations=None, sleep_time=1):
     """
-    Start the VPC router as watcher, who listens for changes in a config file.
+    Start watcher loop, listening for config changes or failed hosts.
 
-    The config file describes a routing spec. The spec should provide a
-    destination CIDR and a set of hosts. The VPC router establishes a route to
-    the first host in the set for the given CIDR.
+    Also starts the various service threads.
 
-    VPC router watches for any changes in the file and updates/adds/deletes
-    routes as necessary.
+    VPC router watches for any changes in the config and updates/adds/deletes
+    routes as necessary. If failed hosts are reported, routes are also updated
+    as needed.
 
     This function starts three threads:
 
@@ -346,11 +236,11 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
     """
     # Start the working threads (health monitor, config event monitor, etc.)
     # and return the thread handles and message queues in a thread-info dict.
-    tinfo = _start_working_threads(fname, region_name, vpc_id, sleep_time)
+    tinfo = _start_working_threads(conf, sleep_time)
 
     # Start the loop to process messages from the monitoring
     # threads about any failed IP addresses or updated route specs.
-    _event_monitor_loop(region_name, vpc_id,
+    _event_monitor_loop(conf['region_name'], conf['vpc_id'],
                         tinfo['q_monitor_ips'], tinfo['q_failed_ips'],
                         tinfo['q_route_spec'],
                         iterations, sleep_time)
