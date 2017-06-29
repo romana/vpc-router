@@ -1,9 +1,11 @@
 # vpc-router
 
+vpc-router lets users avoid VPC route limitations and get the performance and visability of native VPC networking on large Kubernetes clusters. 
+
 ## Introduction
 
-vpc-router is a utility for the setting/deleting of routes in a VPC route
-table, consisting of a destination CIDR as well as the IP address of an EC2
+vpc-router is a utility for setting and deleting routes in an Amazon EC2 VPC route
+table. Each route is specified by a destination CIDR as well as the IP address of an EC2
 instance, which should receive packets for any address in that CIDR.
 
 In addition, vpc-router can continuously monitor instance health and perform an
@@ -19,12 +21,10 @@ within a specified VPC.
 
 ### Project origin
 
-This program was developed for the [Romana project](http://romana.io), in order
-to seamlessly deploy large [Kubernetes](https://kubernetes.io) clusters across
-multiple availability zones in an Amazon VPC. While specifically designed to
-scratch our itch for this usage scenario in the context of Romana and
-Kubernetes, the vpc-router does not depend on either project and can also be
-used stand-alone.
+This program was developed for the [Romana project](http://romana.io) to 
+overcome the limit imposed on VPC route table entries (50 by default), which limits the size of clusters.  Avoiding this limit typically required running an overlay network, which does not offer the performance and visibility of native VPC networking. vpc-router also allows Romana to apply network policy to clusters that span multiple Availability Zones (AZs) without an overlay. 
+
+While vpc-router was specifically designed to for use with Romana and these Kubernetes deployment scenarios, it does not depend on either project and can also be used stand-alone.
 
 ## Installation
 
