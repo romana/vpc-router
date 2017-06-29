@@ -25,7 +25,7 @@ from errors  import ArgsError, VpcRouteSetError
 from http    import start_daemon_with_http_api
 from utils   import ip_check
 from vpc     import handle_request
-from watcher import start_daemon_as_watcher
+from watcher import start_watcher
 
 
 def parse_args():
@@ -50,22 +50,25 @@ def parse_args():
     parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
                         help="the ID of the VPC in which to operate")
     parser.add_argument('-m', '--mode', dest='mode', default='cli',
-                        help="either 'cli' or 'watcher' (default: cli)")
+                        help="either 'cli', 'conffile' or 'http' "
+                             "(default: cli)")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
-    # Arguments for the watcher mode
-    parser.add_argument('-f', '--file', dest='watch_file',
+    # Arguments for the conffile mode
+    parser.add_argument('-f', '--file', dest='conf_file',
                         help="config file for routing groups "
-                             "(required in watcher mode)"),
+                             "(only in conffile mode)"),
+
+    # Arguments for the http mode
     parser.add_argument('-a', '--address', dest="listen_addr",
                         default="localhost",
                         help="address to listen on for commands "
-                             "(only in watcher mode, default: localhost)")
+                             "(only in http mode, default: localhost)")
     parser.add_argument('-p', '--port', dest="listen_port", default="33289",
                         type=int,
                         help="port to listen on for commands "
-                             "(only in watcher mode, default: 33289)")
+                             "(only in http mode, default: 33289)")
 
     # Arguments for the CLI mode
     parser.add_argument('-c', '--cmd', dest="command",
@@ -85,7 +88,7 @@ def parse_args():
     conf['dst_cidr']    = args.dst_cidr
     conf['router_ip']   = args.router_ip
     conf['mode']        = args.mode
-    conf['file']        = args.watch_file
+    conf['file']        = args.conf_file
     conf['port']        = args.listen_port
     conf['addr']        = args.listen_addr
     conf['logfile']     = args.logfile
@@ -93,16 +96,18 @@ def parse_args():
 
     # Sanity checking of arguments
     try:
-        if conf['mode'] == 'watcher':
-            # Sanity checks for various options needed in watcher mode:
+        if conf['mode'] == 'http':
+            # Sanity checks for various options needed in http mode:
             # - HTTP port and address
-            # - Route spec config file
             if not 0 < conf['port'] < 65535:
                 raise ArgsError("Invalid listen port '%d' for http mode." %
                                 conf['port'])
             if not conf['addr'] == "localhost":
                 # maybe a proper address was specified?
                 ip_check(conf['addr'])
+        elif conf['mode'] == 'conffile':
+            # Sanity checks for various options needed in conffile mode:
+            # - Route spec config file
             if not conf['file']:
                 raise ArgsError("A config file needs to be specified (-f).")
             try:
@@ -132,7 +137,6 @@ def parse_args():
                 ip_check(conf['router_ip'])
 
         else:
-
             raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
 
     except ArgsError as e:
@@ -178,14 +182,10 @@ if __name__ == "__main__":
         # Setup logging
         setup_logging(conf)
 
-        if conf['mode'] == "http":
-            logging.info("*** Starting vpc-router in HTTP server mode ***")
-            start_daemon_with_http_api(conf['addr'], conf['port'],
-                                       conf['region_name'], conf['vpc_id'])
-        elif conf['mode'] == "watcher":
-            logging.info("*** Starting vpc-router in watcher mode ***")
-            start_daemon_as_watcher(conf['region_name'], conf['vpc_id'],
-                                    conf['file'])
+        if conf['mode'] != "cli":
+            logging.info("*** Starting vpc-router in %s mode ***" %
+                         conf['mode'])
+            start_watcher(conf)
         else:
             # One off run from the command line
             found = handle_request(
