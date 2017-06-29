@@ -37,13 +37,18 @@ install the required libraries:
     $ cd vpc-router
     $ pip install -r requirements/deploy.txt
 
+## Contributing
+
 If you want to modify or contribute to vpc-router, you might wish to replace
-the last step with:
+the last installation step with:
 
     $ pip install -r requirements/develop.txt
 
 This also installs packages related to running unit tests, which aren't needed
 if you just want to deploy vpc-router in production.
+
+You can then use the `run_tests.sh` script to run all unit tests and create
+coverage reports, which are stored in HTML format in `/tmp/vpc-router-coverage`.
 
 ## Modes of operation
 
