@@ -1,6 +1,6 @@
 # vpc-router
 
-vpc-router lets users avoid route table limitations and build large Kubernetes clusters with the performance and visability of native VPC networking.
+vpc-router lets users avoid route table limitations and build large Kubernetes clusters with the performance and visibility of native VPC networking.
 
 ## Introduction
 
