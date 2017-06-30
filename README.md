@@ -1,20 +1,21 @@
 # vpc-router
 
-vpc-router lets users avoid route table limitations and build large Kubernetes clusters with the performance and visibility of native VPC networking.
+vpc-router lets users avoid route table limitations and build large Kubernetes
+clusters with the performance and visibility of native VPC networking.
 
 ## Introduction
 
 vpc-router is a utility for setting and deleting routes in Amazon EC2 VPC route
-tables. Each route is specified by a destination CIDR as well as the IP address of an EC2
-instance, which should receive packets for any address in that CIDR.
+tables. Each route is specified by a destination CIDR as well as the IP address
+of an EC2 instance, which should receive packets for any address in that CIDR.
 
 In addition, vpc-router can continuously monitor instance health and perform an
 immediate route failover in case of a detected instance failure.
 
 Routes can be configured in different ways, but most commonly, vpc-router will
-take route configs from a storage (file, in the future also KV store) or via HTTP requests.
-It will make sure that routes in the VPC route table are updated as needed with
-every change to the route config.
+take route configs from a storage (file, in the future also KV store) or via
+HTTP requests.  It will make sure that routes in the VPC route table are
+updated as needed with every change to the route config.
 
 By default, it applies all route updates to all the route tables it can find
 within a specified VPC.
