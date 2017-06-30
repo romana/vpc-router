@@ -23,11 +23,6 @@ import boto
 import unittest
 import random
 
-# Hosts are chosen randomly from a prefix group. Therefore, we need to seed
-# the random number generator with a specific value in order to have
-# reproducible tests.
-random.seed(123)
-
 from logging       import Filter
 from moto          import mock_ec2_deprecated
 from testfixtures  import LogCapture
@@ -45,6 +40,14 @@ class MyFilter(Filter):
 
 
 class TestVpcUtil(unittest.TestCase):
+
+    def setUp(self):
+        # Hosts are chosen randomly from a prefix group. Therefore, we need to
+        # seed the random number generator with a specific value in order to
+        # have reproducible tests.
+        random.seed(123)
+
+
     def test_host_choices(self):
         #
         # Specific test for the _choose_from_host function, verifying that it
@@ -54,7 +57,7 @@ class TestVpcUtil(unittest.TestCase):
             [ ( [], [] ),                     None, 0],
             [ ( [ "A" ], [] ),                "A",  0],
             [ ( [ "A", "B" ], [ "A" ] ),      "B",  0],
-            [ ( [ "A", "B" ], [ "C" ] ),      "B",  0],  # known random choice
+            [ ( [ "A", "B" ], [ "C" ] ),      "A",  0],  # known random choice
             [ ( [ "A", "B" ], [ "A", "B" ] ), None, 0],
             [ ( [ "A", "B" ], [ "B" ] ),      "A",  None],
             [ ( [ "A", "B" ], [ "A" ] ),      "B",  None],
@@ -76,6 +79,10 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc = LogCapture()
         self.lc.addFilter(MyFilter())
         self.addCleanup(self.cleanup)
+        # Hosts are chosen randomly from a prefix group. Therefore, we need to
+        # seed the random number generator with a specific value in order to
+        # have reproducible tests.
+        random.seed(123)
 
 
     def cleanup(self):
@@ -237,6 +244,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # generator at in this module, so we know that it will choose the
         # second host in this case.
         self.lc.check(
+            ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.1.0.0/16 -> %s (%s, %s)" %
@@ -277,6 +285,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [])
         self.lc.check(
+            ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
             ('root', 'INFO',
              "--- route not in spec, deleting in RT '%s': "
              "10.1.0.0/16 -> ... (%s, (unknown))" %
@@ -311,6 +320,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'DEBUG', 'Handle route spec'),
             ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
             ('root', 'DEBUG', u"Retrieving information for VPC '%s'" % vid),
+            ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
             ('root', 'INFO',
              "--- adding route in RT '%s' 10.2.0.0/16 -> %s (%s, %s)" %
              (rt_id, self.i1ip, self.i1.id, eni.id)))

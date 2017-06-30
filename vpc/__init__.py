@@ -270,6 +270,8 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     if failed_ips:
         logging.debug("Route spec processing. Failed IPs: %s" %
                       ",".join(failed_ips))
+    else:
+        logging.debug("Route spec processing. No failed IPs.")
 
     # Iterate over all the routes in the VPC, check they are contained in
     # the spec, update the routes as needed. Note that the status of the routes
@@ -383,9 +385,11 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
     Connect to region and update routes according to route spec.
 
     """
-    logging.debug("Handle route spec")
     if not route_spec:
+        logging.debug("handle_spec: No route spec provided")
         return
+
+    logging.debug("Handle route spec")
 
     try:
         con      = connect_to_region(region_name)

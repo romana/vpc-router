@@ -98,34 +98,38 @@ def _event_monitor_loop(region_name, vpc_id,
     """
     time.sleep(sleep_time)   # Wait to allow monitor to report results
 
+    current_route_spec = {}  # The last route spec we have seen
     all_ips = []             # Cache of IP addresses we currently know about
     while True:
         try:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
             # immediately have been initialized with a first message.
-            failed_ips = _read_last_msg_from_queue(q_failed_ips)
-            route_spec = _read_last_msg_from_queue(q_route_spec)
+            failed_ips     = _read_last_msg_from_queue(q_failed_ips)
+            new_route_spec = _read_last_msg_from_queue(q_route_spec)
 
             if failed_ips:
                 # Store the failed IPs in the shared state
                 common.CURRENT_STATE['failed_ips'] = failed_ips
 
-            if route_spec:
+            if new_route_spec:
                 # Store the new route spec in the shared state
-                common.CURRENT_STATE['route_spec'] = route_spec
+                common.CURRENT_STATE['route_spec'] = new_route_spec
+                current_route_spec = new_route_spec
                 # Need to communicate a new set of IPs to the health
                 # monitoring thread, in case the list changed. The list of
                 # addresses is extracted from the route spec. Pass in the old
                 # version of the address list, so that this function can
                 # compare to see if there are any changes to the host list.
-                all_ips = _update_health_monitor_with_new_ips(route_spec,
+                all_ips = _update_health_monitor_with_new_ips(new_route_spec,
                                                               all_ips,
                                                               q_monitor_ips)
 
             # Spec or list of failed IPs changed? Update routes...
-            if route_spec or failed_ips:
-                vpc.handle_spec(region_name, vpc_id, route_spec,
+            # We pass in the last route spec we have seen, since we are also
+            # here in case we only have failed IPs, but no new route spec.
+            if new_route_spec or failed_ips:
+                vpc.handle_spec(region_name, vpc_id, current_route_spec,
                                 failed_ips if failed_ips else [])
 
             # If iterations are provided, count down and exit
