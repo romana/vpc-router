@@ -5,7 +5,6 @@ nosetests -v --with-coverage --cover-erase \
           --cover-html --cover-html-dir=$COVERAGE_REPORT_DIR \
           --cover-package utils \
           --cover-package errors \
-          --cover-package http \
           --cover-package vpc \
           --cover-package watcher \
           --cover-package monitor

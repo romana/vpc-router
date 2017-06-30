@@ -18,44 +18,46 @@ limitations under the License.
 #
 # Unit tests for the watcher module
 #
-import ping
 
 import json
+import logging
+import os
+import requests
 import shutil
 import tempfile
-import threading
 import time
 import unittest
 
+from logging import Filter
+from testfixtures       import LogCapture
+from watchdog.observers import Observer
+
+import monitor
 import watcher
 import vpc
 
-from watchdog.observers import Observer
-
 RES = None
+
+class MyFilter(Filter):
+    def filter(self, record):
+        if record.name != "root":
+            return 0
+        else:
+            return 1
 
 
 class TestRouteSpec(unittest.TestCase):
 
     def setUp(self):
+        self.lc = LogCapture()
+        self.lc.addFilter(MyFilter())
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.cleanup)
 
-        self.old_p_and_p = watcher._parse_and_process
-        # Monkey patch the processing function that's called by our file event
-        # handler.
-        def new_p_and_p(*args, **kwargs):
-            # Just store what we received in a variable, so the test code can
-            # check whether this was called and with what parameters.
-            global RES
-            print "@@@ new_p_and_p: args: ", args
-            RES = args
-        watcher._parse_and_process = new_p_and_p
-
 
     def cleanup(self):
+        self.lc.uninstall()
         shutil.rmtree(self.temp_dir)
-        watcher._parse_and_process = self.old_p_and_p
 
 
     def test_file_event_watcher(self):
@@ -66,12 +68,17 @@ class TestRouteSpec(unittest.TestCase):
         # Create a small test file
         global RES
         abs_fname = self.temp_dir + "/r.spec"
+
+        class MyQueue(object):
+            def put(self, msg):
+                self.msg = msg
+
         with open(abs_fname, "w+") as f:
-            handler = watcher.RouteSpecChangeEventHandler(
+            myq = MyQueue()
+            handler = watcher.configfile.RouteSpecChangeEventHandler(
                                               route_spec_fname   = "r.spec",
                                               route_spec_abspath = abs_fname,
-                                              region_name        = "foo",
-                                              vpc_id             = "bar")
+                                              q_route_spec       = myq)
             # Install the file observer on the directory
             observer_thread = Observer()
             observer_thread.schedule(handler, self.temp_dir)
@@ -81,8 +88,9 @@ class TestRouteSpec(unittest.TestCase):
             f.write("blah")
             f.flush()
             time.sleep(1) # not instantaneous, so need to wait a little
-            self.assertTrue(RES == ('r.spec', 'foo', 'bar'))
-            RES = None
+
+            # File is malformed, so should not have received a message
+            self.assertTrue(myq.msg is None)
 
             # A new file created in the temp directory should not create an
             # event
@@ -90,7 +98,15 @@ class TestRouteSpec(unittest.TestCase):
                 f2.write("blah")
                 f2.flush()
             time.sleep(1)
-            self.assertTrue(RES is None)
+            self.assertTrue(myq.msg is None)
+
+            # Check that we received the right log messages about the file
+            self.lc.check(
+                ('root', 'INFO',
+                 'Detected file change event for %s' % abs_fname),
+                ('root', 'ERROR',
+                 "Config ignored: Cannot open file: [Errno 2] "
+                 "No such file or directory: 'r.spec'"))
 
 
     def test_route_spec_parser(self):
@@ -127,29 +143,39 @@ class TestRouteSpec(unittest.TestCase):
             }
         ]
 
-
         for test_data in test_specs:
-            abs_fname = self.temp_dir + "/r.spec"
-            with open(abs_fname, "w+") as f:
-                f.write(json.dumps(test_data['inp']))
-
-            res = watcher.read_route_spec_config(abs_fname)
-            if test_data['res'] == "IDENT":
-                # Expect same output as input
-                out = test_data['inp']
-            elif test_data['res'] is None:
-                # If input is malformed we expect None as return
-                self.assertTrue(res is None)
-                continue
-
-            # Compare expected result with real data
-            self.assertEqual(out, res)
+            if test_data['res'] is None:
+                self.assertRaises(ValueError,
+                                  watcher.common.parse_route_spec_config,
+                                  test_data['inp'])
+            else:  # if output should be identical
+                res = watcher.common.parse_route_spec_config(test_data['inp'])
+                self.assertEqual(res, test_data['inp'])
 
 
-class TestWatcher(unittest.TestCase):
+class TestWatcherConffile(unittest.TestCase):
+
+    def additional_setup(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.abs_fname = self.temp_dir + "/r.spec"
+        self.conf = {
+            "file"        : self.abs_fname,
+            "region_name" : "dummy-region",
+            "vpc_id"      : "dummy-vpc",
+            "mode"        : "conffile"
+        }
+        # The watcher thread needs to have a config file available right at the
+        # start, even if there's nothing in it
+        self.write_config({})
+
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
+        self.lc = LogCapture()
+        self.lc.setLevel(logging.DEBUG)
+        self.lc.addFilter(MyFilter())
+
+        self.additional_setup()
+
         self.addCleanup(self.cleanup)
 
         self.old_handle_spec = vpc.handle_spec
@@ -160,88 +186,208 @@ class TestWatcher(unittest.TestCase):
         # done actually in the watcher module. For safety, we'll do it in both
         # the vpc and watcher module.
         def new_handle_spec(*args, **kwargs):
-            global RES
-            RES = args
+            pass
         watcher.handle_spec = vpc.handle_spec = new_handle_spec
 
         # Monkey patch the do_one ping method, since we don't really want to
         # send out ICMP echo requests when we run the tests. Will indicate
         # failure for all IP addresses starting with "3."
-        def new_do_one(ip, timeout, size):
+        def new_do_one(ip, timeout, dummy_id, size):
             if ip.startswith("3."):
                 return None    # indicates failure
             else:
                 return 0.5     # indicates success
-        ping.do_one = new_do_one
+        monitor.my_do_one = new_do_one
+
+
+    def additional_cleanup(self):
+        shutil.rmtree(self.temp_dir)
 
 
     def cleanup(self):
-        shutil.rmtree(self.temp_dir)
+        self.lc.uninstall()
         watcher.handle_spec = vpc.handle_spec = self.old_handle_spec
+        self.additional_cleanup()
+
+
+    def write_config(self, data):
+        with open(self.abs_fname, "w+") as f:
+            f.write(json.dumps(data))
+
+
+    def start_thread_log_tuple(self):
+        return ('root', 'INFO',
+                "Starting to watch route spec file '%s' for changes..." %
+                self.abs_fname)
+
+
+    def change_event_log_tuple(self):
+        return ('root', 'INFO',
+                "Detected file change event for %s" %
+                self.abs_fname)
+
+
+    def test_watcher_thread_no_config(self):
+        os.remove(self.abs_fname)
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+
+        time.sleep(0.5)
+        # Config file doesn't exist yet, so we should get an error.
+        # Health monitor is started with a second delay, so no messages from
+        # there, yet.
+        self.lc.check(
+            self.start_thread_log_tuple(),
+            ('root',
+             'ERROR',
+             "Config ignored: Cannot open file: "
+             "[Errno 2] No such file or directory: '%s'" % self.abs_fname))
+
+        watcher._stop_working_threads(self.tinfo)
+
+
+    def test_watcher_thread_wrong_config(self):
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+
+        inp = "MALFORMED"
+        self.write_config(inp)
+
+        time.sleep(2)
+        # Config file malformed
+        self.lc.check(
+            self.start_thread_log_tuple(),
+            self.change_event_log_tuple(),
+            ('root', 'ERROR',
+             'Config ignored: Expected dictionary at top level'),
+            ('root', 'DEBUG', 'Started health monitoring thread'),
+            ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
+
+        watcher._stop_working_threads(self.tinfo)
 
 
     def test_watcher_thread(self):
-        #
-        # Test the full watcher thread.
-        #
-        global RES
-        test_specs = [
-            {
-                "inp" :    {
-                               u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
-                               u"10.2.0.0/16" : [ u"3.3.3.3" ]
-                           },
-                "failed" : [ u"3.3.3.3" ],  # mock ping says this failed
-                "valid"  : True
-            },
-            {
-                # This is malformed and should be ignored
-                "inp" :    {
-                               u"10.1./16" : [ "FOO" ],
-                           },
-                "failed" : [],
-                "valid"  : False
-            },
-            {
-                "inp" :    {
-                               u"10.1.0.0/16" : [ u"1.1.1.1", u"3.4.5.6" ],
-                           },
-                "failed" : [ u"3.4.5.6" ],  # mock ping says this failed
-                "valid"  : True
-            },
-        ]
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        time.sleep(2)
+        self.lc.check(
+             self.start_thread_log_tuple(),
+             ('root', 'DEBUG', 'Started health monitoring thread'),
+             ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
 
-        abs_fname = self.temp_dir + "/r.spec"
-        wt = threading.Thread(target=watcher.start_daemon_as_watcher,
-                              args=("foo-region", "vpc-123", abs_fname),
-                              kwargs={ 'iterations' : 13, 'sleep_time' : 0.5})
-        wt.daemon = True
-        wt.start()
+        self.lc.clear()
 
-        time.sleep(1)   # need to have sleeps here and there to allow the
-                        # monitor threads to catch up
+        inp = {
+                  u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
+                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+              }
+        self.write_config(inp)
 
-        RES = None
-        for test_data in test_specs:
-            # Write new spec definition to file, should result in file event
-            # change being captured and processed, resulting in a call to
-            # handle_spec.
-            with open(abs_fname, "w+") as f:
-                f.write(json.dumps(test_data['inp']))
-            time.sleep(2)
-            if test_data['valid']:
-                # RES should contain the values with which the mock handle_spec
-                # function was called
-                self.assertEqual(
-                    RES, ('foo-region', 'vpc-123', test_data['inp'], True,
-                          test_data['failed']))
-                RES = None
-            else:
-                # Nothing should have happened, since the route spec is
-                # invalid.
-                self.assertTrue(RES is None)
 
-        wt.join()
+        time.sleep(2)
+
+        watcher._event_monitor_loop(
+            "dummy-region", "dummy-vpc",
+            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
+            self.tinfo['q_route_spec'],
+            iterations=1, sleep_time=0.5)
+
+        time.sleep(2)
+
+        self.lc.check(
+            self.change_event_log_tuple(),
+            ('root', 'DEBUG', 'Checking live IPs: (none alive)'),
+            ('root', 'DEBUG',
+             'New route spec detected. Updating health-monitor '
+             'with: 1.1.1.1,2.2.2.2,3.3.3.3'),
+            ('root', 'DEBUG', u'Checking live IPs: 1.1.1.1,2.2.2.2,3.3.3.3'),
+            ('root', 'INFO', u'Currently failed IPs: 3.3.3.3'))
+        self.lc.clear()
+
+        inp = {
+                  u"10.1.0.0/16" : [ u"4.4.4.4", u"2.2.2.2" ],
+                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+              }
+        self.write_config(inp)
+
+        time.sleep(1)
+        """
+        Remove this check: The log messages may come through in a different
+        order, which isn't a problem.
+
+        self.lc.check(
+            ('root', 'INFO',
+             'Detected file change event for %s' % self.abs_fname),
+            ('root', 'DEBUG', 'Checking live IPs: 1.1.1.1,2.2.2.2'))
+        """
+        self.lc.clear()
+
+        watcher._event_monitor_loop(
+            "dummy-region", "dummy-vpc",
+            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
+            self.tinfo['q_route_spec'],
+            iterations=1, sleep_time=0.5)
+
+        time.sleep(2)
+        self.lc.check(
+            ('root', 'DEBUG',
+             'New route spec detected. Updating health-monitor '
+             'with: 2.2.2.2,3.3.3.3,4.4.4.4'),
+            ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
+
+        watcher._stop_working_threads(self.tinfo)
+
+
+PORT = 33289
+
+class TestWatcherHttp(TestWatcherConffile):
+    """
+    Same configs and tests as the conffile test case, except that the config is
+    written with an HTTP request.
+
+    We just need to overwrite a few hooks.
+
+    """
+    def additional_setup(self):
+        global PORT
+        self.conf = {
+            "addr"        : "localhost",
+            "port"        : PORT,
+            "region_name" : "dummy-region",
+            "vpc_id"      : "dummy-vpc",
+            "mode"        : "http"
+        }
+        # Changing the listen port number of the server for each test, since we
+        # can't reuse the socket addresses in such rapid succession
+        PORT += 1
+
+    def additional_cleanup(self):
+        pass
+
+    def write_config(self, data):
+        url = "http://%s:%s/route_spec" % \
+                            (self.conf['addr'], self.conf['port'])
+        requests.post(url, json=data)
+
+    def start_thread_log_tuple(self):
+        return ('root', 'INFO',
+                "Starting to watch for route spec on 'localhost:%d'..." %
+                self.conf['port'])
+
+    def change_event_log_tuple(self):
+        return ('root', 'INFO', "New route spec posted")
+
+    def test_watcher_thread_no_config(self):
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+
+        time.sleep(0.5)
+        # Config file doesn't exist yet, so we should get an error.
+        # Health monitor is started with a second delay, so no messages from
+        # there, yet.
+        self.lc.check(self.start_thread_log_tuple())
+
+        watcher._stop_working_threads(self.tinfo)
+
+
+
+
 
 if __name__ == '__main__':
     unittest.main()

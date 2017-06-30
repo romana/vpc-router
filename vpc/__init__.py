@@ -24,7 +24,9 @@ import random
 
 import boto.vpc
 
-from errors import VpcRouteSetError
+from errors  import VpcRouteSetError
+from watcher import common
+
 
 def connect_to_region(region_name):
     """
@@ -121,32 +123,35 @@ def get_instance_private_ip_from_route(instance, route):
         if eni.id == route.interface_id:
             ipaddr = eni.private_ip_address
             break
-    return ipaddr, eni
+    return ipaddr, eni if ipaddr else None
 
 
-def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
+def manage_route(con, vpc_info, cmd, ip, cidr):
     """
-    Set, delete or show the route to the specified instance.
+    Set, delete or show the route to the instance, specified by IP address.
 
-    For show and delete only the CIDR is needed (instance, eni and ip can
-    be None).
+    For show and delete only the CIDR is needed (the IP address can be left
+    as None).
 
     For now, we set the same route in all route tables.
 
-    Returns any accumulated messages in a list of strings, as well as a
-    'found' flag. The found flag will be 'false' if a show or delete didn't
-    find the specified routes. If the add failes, an exception is thrown.
+    Returns 'found' flag. The found flag will be 'false' if a show or delete
+    didn't find the specified routes. If the add failes, an exception is
+    thrown.
 
     """
-    msg     = []
+    if ip:
+        instance, eni = find_instance_and_emi_by_ip(vpc_info, ip)
+    else:
+        instance = eni = None
+
     found   = True
     cmd_str = {
         "show" : "Searching for",
         "add"  : "Adding",
         "del"  : "Deleting"
     }
-    if not daemon:
-        logging.debug("%s route: %s" % (cmd_str[cmd], cidr))
+    logging.debug("%s route: %s" % (cmd_str[cmd], cidr))
 
     for rt in vpc_info['route_tables']:
         found_in_rt = False
@@ -169,27 +174,29 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
                         eni_id = eni.id
 
                     if cmd == "show":
-                        msg.append("--- route exists in RT '%s': "
-                                   "%s -> %s (%s, %s)" %
-                                   (rt.id, cidr, ipaddr, instance.id, eni_id))
+                        logging.info("--- route exists in RT '%s': "
+                                     "%s -> %s (%s, %s)" %
+                                     (rt.id, cidr, ipaddr, instance.id,
+                                      eni_id))
 
                     elif cmd == "del":
-                        msg.append("--- deleting route in RT '%s': "
-                                   "%s -> %s (%s, %s)" %
-                                   (rt.id, cidr, ipaddr, instance.id, eni_id))
+                        logging.info("--- deleting route in RT '%s': "
+                                     "%s -> %s (%s, %s)" %
+                                     (rt.id, cidr, ipaddr, instance.id,
+                                      eni_id))
                         con.delete_route(route_table_id         = rt.id,
                                          destination_cidr_block = cidr)
                 else:
                     # For add the eni, instance and ip have been passed in
                     if r.interface_id == eni.id:
-                        msg.append("--- route exists already in RT '%s': "
-                                   "%s -> %s (%s, %s)" %
-                                   (rt.id, cidr, ip, instance.id, eni.id))
+                        logging.info("--- route exists already in RT '%s': "
+                                     "%s -> %s (%s, %s)" %
+                                     (rt.id, cidr, ip, instance.id, eni.id))
                     else:
-                        msg.append("--- route exists already in RT '%s', "
-                                   "but with different destination: "
-                                   "%s -> %s (%s, %s)" %
-                                   (rt.id, cidr, ip, instance.id, eni.id))
+                        logging.info("--- route exists already in RT '%s', "
+                                     "but with different destination: "
+                                     "%s -> %s (%s, %s)" %
+                                     (rt.id, cidr, ip, instance.id, eni.id))
                         con.replace_route(route_table_id         = rt.id,
                                           destination_cidr_block = cidr,
                                           instance_id            = instance.id,
@@ -198,23 +205,23 @@ def manage_route(con, vpc_info, instance, eni, cmd, ip, cidr, daemon):
 
         if not found_in_rt:
             if cmd in [ 'show', 'del' ]:
-                msg.append("--- did not find route in RT '%s'" % rt.id)
+                logging.info("--- did not find route in RT '%s'" % rt.id)
                 found = False
             elif cmd == "add":
-                msg.append("--- adding route in RT '%s'"
-                           "%s -> %s (%s, %s)" %
-                           (rt.id, cidr, ip, instance.id, eni.id))
+                logging.info("--- adding route in RT '%s' "
+                             "%s -> %s (%s, %s)" %
+                             (rt.id, cidr, ip, instance.id, eni.id))
                 con.create_route(route_table_id         = rt.id,
                                  destination_cidr_block = cidr,
                                  instance_id            = instance.id,
                                  interface_id           = eni.id)
 
-    return msg, found
+    return found
 
 
-def _choose_from_hosts(ip_list, failed_ips, first_choice=None):
+def _choose_from_hosts(ip_list, failed_ips):
     """
-    Choose a host from a list of hosts.
+    Randomly choose a host from a list of hosts.
 
     Check against the list of failed IPs to ensure that none of those is
     returned.
@@ -225,26 +232,29 @@ def _choose_from_hosts(ip_list, failed_ips, first_choice=None):
     """
     if not ip_list:
         return None
-    if first_choice is None:
-        # By default a random first element should be chosen. We provide it as
-        # a parameter for testing purposes.
-        first_choice = random.randint(0, len(ip_list)-1)
 
-    # Start at the chosen first position and then iterate one by one from
-    # there, until we find an IP that's not failed
+    # First choice is randomly selected, but it may actually be a failed
+    # host...
+    first_choice = random.randint(0, len(ip_list)-1)
+
+    # ... so start at the chosen first position and then iterate one by one
+    # from there, until we find an IP that's not failed.
     i = first_choice
     while True:
+        # Found one that's alive?
         if ip_list[i] not in failed_ips:
             return ip_list[i]
+        # Keep going and wrap around...
         i += 1
         if i == len(ip_list):
             i = 0
+        # Back at the start? Nothing could be found...
         if i == first_choice:
             break
     return None
 
 
-def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
+def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     """
     Looks through the route spec and updates routes accordingly.
 
@@ -260,18 +270,19 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
     if failed_ips:
         logging.debug("Route spec processing. Failed IPs: %s" %
                       ",".join(failed_ips))
-    msg = []
+    else:
+        logging.debug("Route spec processing. No failed IPs.")
 
-    # Iterate over all the routes in the VPC, check if they are contained in
+    # Iterate over all the routes in the VPC, check they are contained in
     # the spec, update the routes as needed. Note that the status of the routes
     # is checked/updated for every route table, so we may see more than one
     # update for a given route.
-    route_dict = {}    # for quick lookup for VPC routes by CIDR in 2nd loop
+    routes_in_rts = {}    # quick lookup of VPC routes by CIDR in 2nd loop
     for rt in vpc_info['route_tables']:
-        route_dict[rt.id] = []
+        routes_in_rts[rt.id] = []
         for r in rt.routes:
             dcidr = r.destination_cidr_block
-            route_dict[rt.id].append(dcidr) # remember we've seen this route
+            routes_in_rts[rt.id].append(dcidr) # remember we've seen this route
             if r.instance_id == None:
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
@@ -287,104 +298,112 @@ def process_route_spec_config(con, vpc_info, route_spec, daemon, failed_ips):
             if hosts:
                 # This route is in the spec!
                 if ipaddr in hosts and not ipaddr_has_failed:
-                    msg.append("--- route exists already in RT '%s': "
-                               "%s -> %s (%s, %s)" %
-                               (rt.id, dcidr, ipaddr, instance.id, eni.id))
+                    # Host in spec and healthy? All good...
+                    logging.info("--- route exists already in RT '%s': "
+                                 "%s -> %s (%s, %s)" %
+                                 (rt.id, dcidr, ipaddr, instance.id, eni.id))
                 else:
-                    # Current route doesn't point to an address in the spec or
-                    # that IP has failed. Choose a new router IP address from
-                    # the host list.
-                    router_ip = _choose_from_hosts(hosts, failed_ips)
-                    if not router_ip:
-                        msg.append("--- cannot find available target for "
-                                   "route %s! Nothing I can do..." % dcidr)
+                    # Select a new host randomly
+                    new_addr = _choose_from_hosts(hosts, failed_ips)
+                    if not new_addr:
+                        # Current route doesn't point to an address in the
+                        # spec or that IP has failed. Choose a new router
+                        # IP address from the host list.
+                        logging.warning("--- cannot find available target "
+                                        "for route %s! "
+                                        "Nothing I can do..." % dcidr)
                         continue
+
+                    # Host is chosen, time to update the route to point to the
+                    # new host.
                     try:
                         new_instance, new_eni = \
-                            find_instance_and_emi_by_ip(vpc_info, router_ip)
+                            find_instance_and_emi_by_ip(vpc_info, new_addr)
                         if ipaddr_has_failed:
                             msg_fragment = "but router IP %s has failed: " % \
                                                     ipaddr
                         else:
                             msg_fragment = "but with different destination: "
-                        msg.append("--- route exists already in RT '%s', %s"
-                                   "updating %s -> %s (%s, %s)" %
-                                   (rt.id, msg_fragment, dcidr, router_ip,
-                                    new_instance.id, new_eni.id))
+                        logging.info("--- route exists already in RT '%s', %s"
+                                     "updating %s -> %s (%s, %s)" %
+                                     (rt.id, msg_fragment, dcidr, new_addr,
+                                      new_instance.id, new_eni.id))
                         con.replace_route(
                                     route_table_id         = rt.id,
                                     destination_cidr_block = dcidr,
                                     instance_id            = new_instance.id,
                                     interface_id           = new_eni.id)
+                        common.CURRENT_STATE['routes'][dcidr] = \
+                                    ( new_addr, str(new_instance.id),
+                                      str(new_eni.id) )
                     except VpcRouteSetError as e:
-                        msg.append("*** failed to update route in RT '%s'"
-                                   "%s -> %s (%s)" %
-                                   (rt.id, dcidr, router_ip, e.message))
+                        logging.error("*** failed to update route in RT '%s' "
+                                      "%s -> %s (%s)" %
+                                      (rt.id, dcidr, ipaddr, e.message))
             else:
                 # The route isn't in the spec anymore and should be deleted.
-                msg.append("--- route not in spec, deleting in RT '%s': "
-                           "%s -> ... (%s, %s)" %
-                           (rt.id, dcidr, instance.id, eni.id))
+                logging.info("--- route not in spec, deleting in RT '%s': "
+                             "%s -> ... (%s, %s)" %
+                             (rt.id, dcidr, instance.id,
+                              eni.id if eni else "(unknown)" ))
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
+                if dcidr in common.CURRENT_STATE['routes']:
+                    del common.CURRENT_STATE['routes'][dcidr]
 
     # Now go over all the routes in the spec and add those that aren't in VPC,
     # yet.
     for dcidr, hosts in route_spec.items():
         # Look at the routes we have seen in each of the route tables.
-        for rt_id, rd in route_dict.items():
-            if dcidr not in rd:
-                # The route does not exist in this route table yet! Create a
-                # route to the first host in the target list
-                router_ip = hosts[0]
+        for rt_id, dcidr_list in routes_in_rts.items():
+            if dcidr not in dcidr_list:
                 try:
+                    # The route does not exist in this route table yet!
+                    # Let's choose a host randomly.
+                    new_addr = _choose_from_hosts(hosts, failed_ips)
                     instance, eni = find_instance_and_emi_by_ip(
-                                                        vpc_info, router_ip)
-                    msg.append("--- adding route in RT '%s'"
-                               "%s -> %s (%s, %s)" %
-                               (rt.id, dcidr, router_ip, instance.id, eni.id))
+                                                      vpc_info, new_addr)
+
+                    logging.info("--- adding route in RT '%s' "
+                                 "%s -> %s (%s, %s)" %
+                                 (rt.id, dcidr, new_addr, instance.id,
+                                  eni.id))
                     con.create_route(route_table_id         = rt_id,
                                      destination_cidr_block = dcidr,
                                      instance_id            = instance.id,
                                      interface_id           = eni.id)
+                    common.CURRENT_STATE['routes'][dcidr] = \
+                                ( new_addr, str(instance.id), str(eni.id) )
                 except VpcRouteSetError as e:
-                    msg.append("*** failed to add route in RT '%s'"
-                               "%s -> %s (%s)" %
-                               (rt.id, dcidr, router_ip, e.message))
-    return msg
+                    logging.error("*** failed to add route in RT '%s' "
+                                  "%s -> %s (%s)" %
+                                  (rt_id, dcidr, new_addr, e.message))
 
 
-def handle_spec(region_name, vpc_id, route_spec, daemon, failed_ips):
+def handle_spec(region_name, vpc_id, route_spec, failed_ips):
     """
     Connect to region and update routes according to route spec.
 
-    The daemon flag is passed through to determine if messages should be
-    printed or accumulated.
-
     """
+    if not route_spec:
+        logging.debug("handle_spec: No route spec provided")
+        return
+
     logging.debug("Handle route spec")
+
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        msgs     = process_route_spec_config(con, vpc_info, route_spec, daemon,
-                                             failed_ips)
+        process_route_spec_config(con, vpc_info, route_spec, failed_ips)
         con.close()
-
-        if not daemon:
-            if msgs:
-                for m in msgs:
-                    logging.info(m)
-
-        return msgs
-
     except boto.exception.StandardError as e:
-        raise VpcRouteSetError("AWS API: " + e.message)
+        logging.warning("vpc-router could not set route: %s" % e.message)
 
     except boto.exception.NoAuthHandlerFound:
-        raise VpcRouteSetError("AWS API: vpc-router could not authenticate")
+        logging.error("vpc-router could not authenticate")
 
 
-def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
+def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
     """
     Connect to region and handle a route add/del/show request.
 
@@ -395,28 +414,16 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr, daemon):
     Currently, we are not cashing the connection to the AWS API, we are opening
     and closing it for every request.
 
-    The daemon flag is passed through to determine if messages should be
-    printed or accumulated.
-
     """
     logging.debug("Handle request: cmd=%s, router_ip=%s, cidr=%s" %
                   (cmd, router_ip, dst_cidr))
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        if router_ip:
-            instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
-        else:
-            instance = eni = None
-        msgs, found = manage_route(con, vpc_info, instance, eni,
-                                   cmd, router_ip, dst_cidr, daemon)
+        found    = manage_route(con, vpc_info, cmd, router_ip, dst_cidr)
         con.close()
 
-        if not daemon:
-            for m in msgs:
-                logging.info(m)
-
-        return msgs, found
+        return found
 
     except boto.exception.StandardError as e:
         raise VpcRouteSetError("AWS API: " + e.message)

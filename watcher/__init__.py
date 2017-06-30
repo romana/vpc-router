@@ -20,180 +20,117 @@ limitations under the License.
 #
 
 import itertools
-import json
 import logging
-import os
 import Queue
 import time
 
-from errors  import ArgsError, VpcRouteSetError
-from monitor import start_monitor_in_background
-from utils   import ip_check
-from vpc     import handle_spec
+import monitor
+import vpc
 
-from watchdog.events    import FileSystemEventHandler, FileModifiedEvent
-from watchdog.observers import Observer
-
-
-FAILED_IPS    = []
-Q_MONITOR_IPS = None
-Q_FAILED_IPS  = None
+from . import configfile
+from . import http
+from . import common
 
 
-class RouteSpecChangeEventHandler(FileSystemEventHandler):
+def _read_last_msg_from_queue(q):
     """
-    My own event handler class, to be used to process events on the route-spec
-    file. Since it calls the process function, it needs to know info about the
-    file itself (paths and filenames) as well as the AWS side (region and VPC).
+    Read all messages from a queue and return the last one.
+
+    This is useful in our case, since all messages are always the complete
+    state of things. Therefore, intermittent messages can be ignored.
+
+    Doesn't block, returns None if there is no message waiting in the queue.
 
     """
-    def __init__(self, *args, **kwargs):
-        self._route_spec_fname   = kwargs['route_spec_fname']
-        self._route_spec_abspath = kwargs['route_spec_abspath']
-        self._region_name        = kwargs['region_name']
-        self._vpc_id             = kwargs['vpc_id']
-
-        del kwargs['route_spec_fname']
-        del kwargs['route_spec_abspath']
-        del kwargs['region_name']
-        del kwargs['vpc_id']
-
-        super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
-
-
-    def on_modified(self, event):
-        if type(event) is FileModifiedEvent and \
-                                    event.src_path == self._route_spec_abspath:
-            logging.info("Detected file change event for %s" %
-                          self._route_spec_abspath)
-            _parse_and_process(self._route_spec_fname,
-                               self._region_name,
-                               self._vpc_id)
-
-
-def read_route_spec_config(fname):
-    """
-    Read, parse and sanity check the route spec config file.
-
-    The config file needs to be in this format:
-
-    {
-        "<CIDR-1>" : [ "host-1-ip", "host-2-ip", "host-3-ip" ],
-        "<CIDR-2>" : [ "host-4-ip", "host-5-ip" ],
-        "<CIDR-3>" : [ "host-6-ip", "host-7-ip", "host-8-ip", "host-9-ip" ]
-    }
-
-    Returns the validated route config.
-
-    """
-    try:
+    msg = None
+    while True:
         try:
-            f = open(fname, "r")
-        except IOError as e:
-            # Cannot open file? Doesn't exist?
-            raise ValueError("Cannot open file: " + str(e))
-        data = json.loads(f.read())
-        f.close()
-        # Sanity checking on the data object
-        if type(data) is not dict:
-            raise ValueError("Expected dictionary at top level")
-        try:
-            for k, v in data.items():
-                ip_check(k, netmask_expected=True)
-                if type(v) is not list:
-                    raise ValueError("Expect list of IPs as values in dict")
-                for ip in v:
-                    ip_check(ip)
-
-        except ArgsError as e:
-            raise ValueError(e.message)
-
-    except ValueError as e:
-        logging.error("Config file ignored: %s" % str(e))
-        data = None
-
-    return data
+            # The list of IPs is always a full list.
+            msg = q.get_nowait()
+            q.task_done()
+        except Queue.Empty:
+            # No more messages, all done for now
+            return msg
 
 
-def _parse_and_process(fname, region_name, vpc_id):
+def _update_health_monitor_with_new_ips(route_spec, all_ips,
+                                        q_monitor_ips):
     """
-    Read and parse spec file, update routes, let monitor thread know which
-    IPs are in the config.
+    Take the current route spec and compare to the current list of known IP
+    addresses. If the route spec mentiones a different set of IPs, update the
+    monitoring thread with that new list.
+
+    Return the current set of IPs mentioned in the route spec.
 
     """
-    try:
-        route_spec = read_route_spec_config(fname)
-        if not route_spec:
-            return
-        handle_spec(region_name, vpc_id, route_spec, True, FAILED_IPS)
-        # Get all the hosts, independent of route they belong to
-        all_hosts = set(itertools.chain.from_iterable(route_spec.values()))
-        Q_MONITOR_IPS.put(list(all_hosts))
-    except ValueError as e:
-        logging.warning("Cannot parse route spec: %s" % str(e))
-    except VpcRouteSetError as e:
-        logging.error("Cannot set route: %s" % str(e))
+    # Extract all the IP addresses from the route spec, unique and sorted.
+    new_all_ips = \
+        sorted(set(itertools.chain.from_iterable(route_spec.values())))
+    if new_all_ips != all_ips:
+        logging.debug("New route spec detected. Updating "
+                      "health-monitor with: %s" %
+                      ",".join(new_all_ips))
+        # Looks like we have a new list of IPs
+        all_ips = new_all_ips
+        q_monitor_ips.put(all_ips)
+    else:
+        logging.debug("New route spec detected. No changes in "
+                      "IP address list, not sending update to "
+                      "health-monitor.")
+
+    return all_ips
 
 
-def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
-                            sleep_time=1):
+def _event_monitor_loop(region_name, vpc_id,
+                        q_monitor_ips, q_failed_ips, q_route_spec,
+                        iterations, sleep_time):
     """
-    Start the VPC router as watcher, who listens for changes in a config file.
+    Monitor queues to receive updates about new route specs or any detected
+    failed IPs.
 
-    The config file describes a routing spec. The spec should provide a
-    destination CIDR and a set of hosts. The VPC router establishes a route to
-    the first host in the set for the given CIDR.
-
-    VPC router watches for any changes in the file and updates/adds/deletes
-    routes as necessary.
+    If any of those have updates, notify the health-monitor thread with a
+    message on a special queue and also re-process the entire routing table.
 
     The 'iterations' argument allows us to limit the running time of the watch
     loop for test purposes. Not used during normal operation. Also, for faster
     tests, sleep_time can be set to values less than 1.
 
     """
-    global Q_MONITOR_IPS, Q_FAILED_IPS, FAILED_IPS
+    time.sleep(sleep_time)   # Wait to allow monitor to report results
 
-    # Start the monitoring thread
-    monitor_thread, Q_MONITOR_IPS, Q_FAILED_IPS = \
-                                    start_monitor_in_background(sleep_time)
+    current_route_spec = {}  # The last route spec we have seen
+    all_ips = []             # Cache of IP addresses we currently know about
+    while True:
+        try:
+            # Get the latest messages from the route-spec monitor and the
+            # health-check monitor. At system start the route-spec queue should
+            # immediately have been initialized with a first message.
+            failed_ips     = _read_last_msg_from_queue(q_failed_ips)
+            new_route_spec = _read_last_msg_from_queue(q_route_spec)
 
-    # Initial content of file needs to be processed at least once, before we
-    # start watching for any changes to it.
-    _parse_and_process(fname, region_name, vpc_id)
+            if failed_ips:
+                # Store the failed IPs in the shared state
+                common.CURRENT_STATE['failed_ips'] = failed_ips
 
-    # Now prepare to watch for any changes in that file.
-    # Find the parent directory of the config file, since this is where we will
-    # attach a watcher to.
-    abspath    = os.path.abspath(fname)
-    parent_dir = os.path.dirname(abspath)
+            if new_route_spec:
+                # Store the new route spec in the shared state
+                common.CURRENT_STATE['route_spec'] = new_route_spec
+                current_route_spec = new_route_spec
+                # Need to communicate a new set of IPs to the health
+                # monitoring thread, in case the list changed. The list of
+                # addresses is extracted from the route spec. Pass in the old
+                # version of the address list, so that this function can
+                # compare to see if there are any changes to the host list.
+                all_ips = _update_health_monitor_with_new_ips(new_route_spec,
+                                                              all_ips,
+                                                              q_monitor_ips)
 
-    # Create the file watcher and run in endless loop
-    handler = RouteSpecChangeEventHandler(route_spec_fname   = fname,
-                                          route_spec_abspath = abspath,
-                                          region_name        = region_name,
-                                          vpc_id             = vpc_id)
-    observer_thread = Observer()
-    observer_thread.name = "ConfMon"
-    observer_thread.schedule(handler, parent_dir)
-    observer_thread.start()
-
-    try:
-        while True:
-            time.sleep(sleep_time)
-
-            # Loop until we have processed all available message from the queue
-            while True:
-                try:
-                    failed_ips = Q_FAILED_IPS.get_nowait()
-                    Q_FAILED_IPS.task_done()
-                    # The message is just an IP address of a host that's not
-                    # accessible anymore.
-                    FAILED_IPS = failed_ips
-                    _parse_and_process(fname, region_name, vpc_id)
-                except Queue.Empty:
-                    # No more messages, all done for now
-                    break
+            # Spec or list of failed IPs changed? Update routes...
+            # We pass in the last route spec we have seen, since we are also
+            # here in case we only have failed IPs, but no new route spec.
+            if new_route_spec or failed_ips:
+                vpc.handle_spec(region_name, vpc_id, current_route_spec,
+                                failed_ips if failed_ips else [])
 
             # If iterations are provided, count down and exit
             if iterations is not None:
@@ -201,16 +138,111 @@ def start_daemon_as_watcher(region_name, vpc_id, fname, iterations=None,
                 if iterations == 0:
                     break
 
-    except KeyboardInterrupt:
-        # Allow exit via keyboard interrupt, useful during development
-        pass
+            time.sleep(sleep_time)
+        except KeyboardInterrupt:
+            # Allow exit via keyboard interrupt, useful during development
+            return
+        except Exception as e:
+            # Of course we should never get here, but if we do, better to log
+            # it and keep operating best we can...
+            logging.error("*** Uncaught exception 1: %s" % str(e))
 
+
+def _start_working_threads(conf, sleep_time):
+    """
+    Start the working threads:
+    - Health monitor
+    - Config change monitor (either file watch or http)
+
+    Return dict with thread info and the message queues that were created for
+    them.
+
+    There are different means of feeding updated route spec configs to the
+    vpc-router. For example a config file, or by POSTing configs via HTTP. The
+    method is chosen via the "mode" command line argument.
+
+    Independent of what mode is chosen, the specific config-watcher thread
+    always uses the same means of communicating updated configs back: A message
+    queue on which a full route spec is sent whenever the config changes.
+
+    """
+    # Start the health monitoring thread
+    monitor_thread, q_monitor_ips, q_failed_ips = \
+                        monitor.start_monitor_thread(sleep_time)
+
+    # No matter what the chosen mode of watching for config updates: We get a
+    # queue and a thread-handle back.
+    if conf['mode'] == "conffile":
+        # Start the config change monitoring thread
+        observer_thread, q_route_spec =  \
+            configfile.start_config_change_detection_thread(
+                conf['file'], conf['region_name'], conf['vpc_id'])
+    elif conf['mode'] == "http":
+        # Start the http server to listen for route spec updates
+        observer_thread, q_route_spec = \
+            http.start_config_receiver_thread(
+                conf['addr'], conf['port'],
+                conf['region_name'], conf['vpc_id'])
+
+    return {
+               "monitor_thread"  : monitor_thread,
+               "observer_thread" : observer_thread,
+               "q_monitor_ips"   : q_monitor_ips,
+               "q_failed_ips"    : q_failed_ips,
+               "q_route_spec"    : q_route_spec
+           }
+
+
+def _stop_working_threads(thread_info):
+    """
+    Stops and collects the workin threads.
+
+    Needs the thread-info dict created by _start_working_threads().
+
+    """
     logging.debug("Stopping config change observer...")
-    observer_thread.stop()   # Stop signal for config watcher thread
+    thread_info['observer_thread'].stop()   # Stop signal for config watcher
     logging.debug("Stopping health-check monitor...")
-    Q_MONITOR_IPS.put(None)  # Stop signal to monitor thread
+    thread_info['q_monitor_ips'].put(None)  # Stop signal for health monitor
 
-    observer_thread.join()
-    monitor_thread.join()
+    thread_info['observer_thread'].join()
+    thread_info['monitor_thread'].join()
+
+
+def start_watcher(conf, iterations=None, sleep_time=1):
+    """
+    Start watcher loop, listening for config changes or failed hosts.
+
+    Also starts the various service threads.
+
+    VPC router watches for any changes in the config and updates/adds/deletes
+    routes as necessary. If failed hosts are reported, routes are also updated
+    as needed.
+
+    This function starts three threads:
+
+    - "ConfMon":   A file-change observer on the route spec file.
+    - "HealthMon": Monitors health of instances mentioned in the route spec.
+    - "HttpSrv":   A small HTTP server providing status information.
+
+    It then drops into a loop to receive messages from the health monitoring
+    thread and re-process the config if any failed IPs are reported.
+
+    The loop itself is in its own function to facilitate easier testing.
+
+    """
+    # Start the working threads (health monitor, config event monitor, etc.)
+    # and return the thread handles and message queues in a thread-info dict.
+    tinfo = _start_working_threads(conf, sleep_time)
+
+    # Start the loop to process messages from the monitoring
+    # threads about any failed IP addresses or updated route specs.
+    _event_monitor_loop(conf['region_name'], conf['vpc_id'],
+                        tinfo['q_monitor_ips'], tinfo['q_failed_ips'],
+                        tinfo['q_route_spec'],
+                        iterations, sleep_time)
+
+    # Stopping and collecting all worker threads when we are done
+    _stop_working_threads(tinfo)
 
 

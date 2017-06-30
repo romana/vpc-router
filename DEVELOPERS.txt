@@ -1,13 +1,24 @@
 
+Installation
+============
+When developing or contributing to vpc-router it is helpful to install some
+useful packages for running local unit tests. You can do so with this command:
+
+    $ pip install -r requirements/develop.txt
+
+
 Testing
 =======
-Unit tests are contained in the tests/ directory. To run all of them, use:
+To run all unit tests, use the `run_tests.sh` script, like so:
 
-    $ python -m unittest discover
+    $ ./run_tests.sh
 
-To just run specific tests, use:
+This also creates code coverage reports in HTML, which are by default stored in
+`/tmp/vpc-router-coverage`.
+
+To just run specific tests, use (for example):
 
     $ python -m unittest tests.test_utils
 
-
+All unit tests are contained in the `tests/` directory.
 

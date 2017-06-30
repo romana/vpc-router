@@ -22,8 +22,9 @@ limitations under the License.
 import logging
 import ping
 import Queue
-import time
+import socket
 import threading
+import time
 
 
 class _StopReceived(Exception):
@@ -34,7 +35,35 @@ class _StopReceived(Exception):
     pass
 
 
-def _do_ping(ip, results):
+def my_do_one(dest_addr, ping_id, timeout, psize):
+    """
+    Returns either the delay (in seconds) or none on timeout.
+
+    This is a copy of the do_one function in the ping packet, but importantly,
+    the ID for the ping packet is different (it's now passed in from the
+    caller). Originally, the PID was used, which is not thread safe.
+
+    """
+    icmp = socket.getprotobyname("icmp")
+    try:
+        my_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, icmp)
+    except socket.error, (errno, msg):
+        if errno == 1:
+            msg = msg + (
+                " - Note that ICMP messages can only be sent from processes"
+                " running as root."
+            )
+            raise socket.error(msg)
+        raise # raise the original error
+
+    ping.send_one_ping(my_socket, dest_addr, ping_id, psize)
+    delay = ping.receive_one_ping(my_socket, ping_id, timeout)
+
+    my_socket.close()
+    return delay
+
+
+def _do_ping(ip, ping_id, results):
     """
     Send a single ping to a specified IP address.
 
@@ -44,7 +73,7 @@ def _do_ping(ip, results):
 
     """
     try:
-        res = ping.do_one(ip, 2, 1)
+        res = my_do_one(ip, ping_id, 2, 16)
     except Exception:
         # If an unreachable name or IP is specified then we might even get an
         # exception here. Still just return None in that case.
@@ -89,14 +118,23 @@ def _do_health_checks(list_of_ips):
     Gather up the results and return the list of those addresses that failed
     the test.
 
+    TODO: Currently, this starts a thread for every single address we want to
+    check. That's probably not a good idea if we have thousands of addresses.
+    Therefore, we should implement some batching for large sets.
+
     """
     threads = []
     results = {}
 
-    # Start the thread for each IP we wish to ping...
-    for ip in list_of_ips:
+    # Start the thread for each IP we wish to ping.
+    # We calculate a unique ID for the ICMP echo request sent by each thread.
+    # It's based on the slowly increasing time stamp (just 8 bits worth of the
+    # seconds since epoch)...
+    nowsecs = int(time.time()) % 255
+    for count, ip in enumerate(list_of_ips):
+        ping_id = (nowsecs << 8) + count  # ... plus running count of packets
         thread = threading.Thread(target=_do_ping,
-                                  args=(ip, results))
+                                  args=(ip, ping_id, results))
         thread.start()
         threads.append(thread)
 
@@ -123,6 +161,9 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
     as a stop signal and the function exits.
 
     """
+    time.sleep(1)
+    logging.debug("Started health monitoring thread")
+
     # This is our working set. This list may be updated occasionally when we
     # receive messages on the q_monitor_ips queue. But irrespective of any
     # received updates, the list of IPs in here is regularly checked.
@@ -144,7 +185,8 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
             live_ips_to_check = [ip for ip in list_of_ips if
                                  ip not in currently_failed_ips]
             logging.debug("Checking live IPs: %s" %
-                          ",".join(live_ips_to_check))
+                          (",".join(live_ips_to_check) if live_ips_to_check
+                                                       else "(none alive)"))
 
             # Independent of any updates: Perform health check on all IPs in
             # the working set and send messages out about any failed once as
@@ -155,8 +197,8 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
                     q_failed_ips.put(failed_ips)
                     # Update list of currently failed IPs with any new ones
                     currently_failed_ips.update(failed_ips)
-                    logging.info("Currently failed IPs: %s" %
-                                  ",".join(currently_failed_ips))
+                    logging.info('Currently failed IPs: %s' %
+                                 ",".join(currently_failed_ips))
 
             if interval_count == recheck_failed_interval:
                 # Ever now and then clean out our currently failed IP cache so
@@ -166,12 +208,13 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
 
             time.sleep(interval)
             interval_count += 1
+
     except _StopReceived:
         # Received the stop signal, just exiting the thread function
         return
 
 
-def start_monitor_in_background(interval=2):
+def start_monitor_thread(interval=2):
     """
     Start a thread for the monitor function.
 
@@ -202,4 +245,5 @@ def start_monitor_in_background(interval=2):
 
     # Return the thread and the two queues to the caller
     return (monitor_thread, q_monitor_ips, q_failed_ips)
+
 
