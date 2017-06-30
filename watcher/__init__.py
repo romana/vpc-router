@@ -24,42 +24,12 @@ import logging
 import Queue
 import time
 
-from monitor import start_monitor_in_background
-from vpc     import handle_spec
+import monitor
+import vpc
 
 from . import configfile
-
-
-def _start_health_monitoring_thread(sleep_time):
-    """
-    Start the thread that montors the health of instances.
-
-    It receives updates messages of which instances to monitor on a queue and
-    returns messages about failed instances on another queue.
-
-    It crates those two queues and returns those as well as a handle on the
-    monitoring thread in a 3-tuple.
-
-    """
-    monitor_thread, q_monitor_ips, q_failed_ips = \
-                                    start_monitor_in_background(sleep_time)
-    return monitor_thread, q_monitor_ips, q_failed_ips
-
-
-def _start_config_http_srv_thread(conf):
-    """
-    Listen for route spec updates via a small http server.
-
-    Returns a tuple with the handle on the http server thread and a queue on
-    which it communicates the full route spec whenever it changes.
-
-    """
-    addr        = conf['addr']
-    port        = conf['port']
-    region_name = conf['region_name']
-    vpc_id      = conf['vpc_id']
-
-    q_route_spec = Queue.Queue()
+from . import http
+from . import common
 
 
 def _read_last_msg_from_queue(q):
@@ -68,6 +38,8 @@ def _read_last_msg_from_queue(q):
 
     This is useful in our case, since all messages are always the complete
     state of things. Therefore, intermittent messages can be ignored.
+
+    Doesn't block, returns None if there is no message waiting in the queue.
 
     """
     msg = None
@@ -124,29 +96,37 @@ def _event_monitor_loop(region_name, vpc_id,
     tests, sleep_time can be set to values less than 1.
 
     """
-    all_ips    = []  # a cache of the IP addresses we currently know about
-    route_spec = {}
     time.sleep(sleep_time)   # Wait to allow monitor to report results
+
+    all_ips = []             # Cache of IP addresses we currently know about
     while True:
         try:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
             # immediately have been initialized with a first message.
-            failed_ips     = _read_last_msg_from_queue(q_failed_ips)
-            new_route_spec = _read_last_msg_from_queue(q_route_spec)
+            failed_ips = _read_last_msg_from_queue(q_failed_ips)
+            route_spec = _read_last_msg_from_queue(q_route_spec)
 
-            # Need to communicate a new set of IPs to the health
-            # monitoring thread, in case the list changed
-            if new_route_spec:
-                route_spec = new_route_spec
+            if failed_ips:
+                # Store the failed IPs in the shared state
+                common.CURRENT_STATE['failed_ips'] = failed_ips
+
+            if route_spec:
+                # Store the new route spec in the shared state
+                common.CURRENT_STATE['route_spec'] = route_spec
+                # Need to communicate a new set of IPs to the health
+                # monitoring thread, in case the list changed. The list of
+                # addresses is extracted from the route spec. Pass in the old
+                # version of the address list, so that this function can
+                # compare to see if there are any changes to the host list.
                 all_ips = _update_health_monitor_with_new_ips(route_spec,
                                                               all_ips,
                                                               q_monitor_ips)
 
-            # Spec of list of failed IPs changed? Update routes...
-            if new_route_spec or failed_ips:
-                handle_spec(region_name, vpc_id, route_spec,
-                            failed_ips if failed_ips else [])
+            # Spec or list of failed IPs changed? Update routes...
+            if route_spec or failed_ips:
+                vpc.handle_spec(region_name, vpc_id, route_spec,
+                                failed_ips if failed_ips else [])
 
             # If iterations are provided, count down and exit
             if iterations is not None:
@@ -173,11 +153,21 @@ def _start_working_threads(conf, sleep_time):
     Return dict with thread info and the message queues that were created for
     them.
 
+    There are different means of feeding updated route spec configs to the
+    vpc-router. For example a config file, or by POSTing configs via HTTP. The
+    method is chosen via the "mode" command line argument.
+
+    Independent of what mode is chosen, the specific config-watcher thread
+    always uses the same means of communicating updated configs back: A message
+    queue on which a full route spec is sent whenever the config changes.
+
     """
     # Start the health monitoring thread
     monitor_thread, q_monitor_ips, q_failed_ips = \
-            _start_health_monitoring_thread(sleep_time)
+                        monitor.start_monitor_thread(sleep_time)
 
+    # No matter what the chosen mode of watching for config updates: We get a
+    # queue and a thread-handle back.
     if conf['mode'] == "conffile":
         # Start the config change monitoring thread
         observer_thread, q_route_spec =  \
@@ -185,7 +175,10 @@ def _start_working_threads(conf, sleep_time):
                 conf['file'], conf['region_name'], conf['vpc_id'])
     elif conf['mode'] == "http":
         # Start the http server to listen for route spec updates
-        observer_thread, q_route_spec = _start_config_http_srv_thread(conf)
+        observer_thread, q_route_spec = \
+            http.start_config_receiver_thread(
+                conf['addr'], conf['port'],
+                conf['region_name'], conf['vpc_id'])
 
     return {
                "monitor_thread"  : monitor_thread,

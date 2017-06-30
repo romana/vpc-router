@@ -19,8 +19,14 @@ limitations under the License.
 # Unit tests for the VPC module
 #
 
-import unittest
 import boto
+import unittest
+import random
+
+# Hosts are chosen randomly from a prefix group. Therefore, we need to seed
+# the random number generator with a specific value in order to have
+# reproducible tests.
+random.seed(123)
 
 from logging       import Filter
 from moto          import mock_ec2_deprecated
@@ -48,7 +54,7 @@ class TestVpcUtil(unittest.TestCase):
             [ ( [], [] ),                     None, 0],
             [ ( [ "A" ], [] ),                "A",  0],
             [ ( [ "A", "B" ], [ "A" ] ),      "B",  0],
-            [ ( [ "A", "B" ], [ "C" ] ),      "A",  0],
+            [ ( [ "A", "B" ], [ "C" ] ),      "B",  0],  # known random choice
             [ ( [ "A", "B" ], [ "A", "B" ] ), None, 0],
             [ ( [ "A", "B" ], [ "B" ] ),      "A",  None],
             [ ( [ "A", "B" ], [ "A" ] ),      "B",  None],
@@ -57,7 +63,7 @@ class TestVpcUtil(unittest.TestCase):
         for args, expected_out, first_pos in in_out:
             self.assertEqual(
                 expected_out,
-                vpc._choose_from_hosts(*args, first_choice=first_pos))
+                vpc._choose_from_hosts(*args))
 
 
 class TestVpcBotoInteractions(unittest.TestCase):
@@ -175,15 +181,15 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
         vpc.manage_route(con, d, "show", None, "10.55.0.0/16")
-        # See the 'unknown' in the log messages? This is normally the IP
-        # address associated with the eni, but it seems as if moto doesn't
-        # quite set this correctly.
+        # See the 'unknowns' in the log messages? This is normally the IP
+        # address and eni associated with the route, but it seems as moto
+        # doesn't implement storing that.
         self.lc.check(
             ('root', 'DEBUG', 'Searching for route: 10.55.0.0/16'),
             ('root', 'INFO',
              "--- route exists in RT '%s': "
-             "10.55.0.0/16 -> (unknown) (%s, %s)" %
-             (d['route_tables'][0].id, self.i1.id, eni.id)))
+             "10.55.0.0/16 -> (unknown) (%s, (unknown))" %
+             (d['route_tables'][0].id, self.i1.id)))
 
         # Deleting the route
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
@@ -193,8 +199,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'DEBUG', 'Deleting route: 10.55.0.0/16'),
             ('root', 'INFO',
              "--- deleting route in RT '%s': 10.55.0.0/16 -> "
-             "(unknown) (%s, %s)" %
-             (d['route_tables'][0].id, self.i1.id, eni.id)))
+             "(unknown) (%s, (unknown))" %
+             (d['route_tables'][0].id, self.i1.id)))
 
         # Now try to delete the same route again: Error
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
@@ -227,11 +233,14 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Process a simple route spec, a route should have been added
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [])
+        # One of the hosts is randomly chosen. We seeded the random number
+        # generator at in this module, so we know that it will choose the
+        # second host in this case.
         self.lc.check(
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.1.0.0/16 -> %s (%s, %s)" %
-             (rt_id, self.i1ip, i1.id, eni1.id)))
+             (rt_id, self.i2ip, i2.id, eni2.id)))
 
         # One of the two IPs failed, switch over
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
@@ -270,8 +279,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check(
             ('root', 'INFO',
              "--- route not in spec, deleting in RT '%s': "
-             "10.1.0.0/16 -> ... (%s, %s)" %
-             (rt_id, i2.id, eni2.id)),
+             "10.1.0.0/16 -> ... (%s, (unknown))" %
+             (rt_id, i2.id)),
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.2.0.0/16 -> %s (%s, %s)" %

@@ -23,8 +23,8 @@ import logging
 import ping
 import Queue
 import socket
-import time
 import threading
+import time
 
 
 class _StopReceived(Exception):
@@ -214,7 +214,7 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
         return
 
 
-def start_monitor_in_background(interval=2):
+def start_monitor_thread(interval=2):
     """
     Start a thread for the monitor function.
 
@@ -245,4 +245,5 @@ def start_monitor_in_background(interval=2):
 
     # Return the thread and the two queues to the caller
     return (monitor_thread, q_monitor_ips, q_failed_ips)
+
 

@@ -24,13 +24,13 @@ import logging
 import os
 import Queue
 
-from watchdog.events    import FileSystemEventHandler, FileModifiedEvent
-from watchdog.observers import Observer
+import watchdog.events
+import watchdog.observers
 
-from . import util
+from . import common
 
 
-class RouteSpecChangeEventHandler(FileSystemEventHandler):
+class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
     """
     Our own event handler class, to be used to process events on the route-spec
     file.
@@ -47,11 +47,9 @@ class RouteSpecChangeEventHandler(FileSystemEventHandler):
 
         super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
 
-        logging.debug("Started config file change monitoring thread")
-
 
     def on_modified(self, event):
-        if type(event) is FileModifiedEvent and \
+        if type(event) is watchdog.events.FileModifiedEvent and \
                                     event.src_path == self._route_spec_abspath:
             logging.info("Detected file change event for %s" %
                           self._route_spec_abspath)
@@ -90,10 +88,10 @@ def read_route_spec_config(fname):
         data = json.loads(f.read())
         f.close()
         # Sanity checking on the data object
-        data = util.parse_route_spec_config(data)
+        data = common.parse_route_spec_config(data)
 
     except ValueError as e:
-        logging.error("Config file ignored: %s" % str(e))
+        logging.error("Config ignored: %s" % str(e))
         data = None
 
     return data
@@ -107,7 +105,10 @@ def start_config_change_detection_thread(fname, region_name, vpc_id):
     it communicates the full route spec whenever it changes.
 
     """
+    logging.info("Starting to watch route spec file '%s' for changes..." %
+                 fname)
     q_route_spec = Queue.Queue()
+
     # Initial content of file needs to be processed at least once, before we
     # start watching for any changes to it. Therefore, we will write it out on
     # the queue right away.
@@ -129,7 +130,7 @@ def start_config_change_detection_thread(fname, region_name, vpc_id):
     handler = RouteSpecChangeEventHandler(route_spec_fname   = fname,
                                           route_spec_abspath = abspath,
                                           q_route_spec       = q_route_spec)
-    observer_thread = Observer()
+    observer_thread = watchdog.observers.Observer()
     observer_thread.name = "ConfMon"
     observer_thread.schedule(handler, parent_dir)
     observer_thread.start()

@@ -21,6 +21,8 @@ limitations under the License.
 
 import json
 import logging
+import os
+import requests
 import shutil
 import tempfile
 import time
@@ -100,12 +102,10 @@ class TestRouteSpec(unittest.TestCase):
 
             # Check that we received the right log messages about the file
             self.lc.check(
-                ('root', 'DEBUG',
-                 'Started config file change monitoring thread'),
                 ('root', 'INFO',
                  'Detected file change event for %s' % abs_fname),
                 ('root', 'ERROR',
-                 "Config file ignored: Cannot open file: [Errno 2] "
+                 "Config ignored: Cannot open file: [Errno 2] "
                  "No such file or directory: 'r.spec'"))
 
 
@@ -146,21 +146,17 @@ class TestRouteSpec(unittest.TestCase):
         for test_data in test_specs:
             if test_data['res'] is None:
                 self.assertRaises(ValueError,
-                                  watcher.util.parse_route_spec_config,
+                                  watcher.common.parse_route_spec_config,
                                   test_data['inp'])
             else:  # if output should be identical
-                res = watcher.util.parse_route_spec_config(test_data['inp'])
+                res = watcher.common.parse_route_spec_config(test_data['inp'])
                 self.assertEqual(res, test_data['inp'])
 
 
-class TestWatcher(unittest.TestCase):
+class TestWatcherConffile(unittest.TestCase):
 
-    def setUp(self):
-        self.lc = LogCapture()
-        self.lc.setLevel(logging.DEBUG)
-        self.lc.addFilter(MyFilter())
+    def additional_setup(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.addCleanup(self.cleanup)
         self.abs_fname = self.temp_dir + "/r.spec"
         self.conf = {
             "file"        : self.abs_fname,
@@ -168,6 +164,19 @@ class TestWatcher(unittest.TestCase):
             "vpc_id"      : "dummy-vpc",
             "mode"        : "conffile"
         }
+        # The watcher thread needs to have a config file available right at the
+        # start, even if there's nothing in it
+        self.write_config({})
+
+
+    def setUp(self):
+        self.lc = LogCapture()
+        self.lc.setLevel(logging.DEBUG)
+        self.lc.addFilter(MyFilter())
+
+        self.additional_setup()
+
+        self.addCleanup(self.cleanup)
 
         self.old_handle_spec = vpc.handle_spec
         # Monkey patch the handle_spec function, which is called by the
@@ -191,13 +200,35 @@ class TestWatcher(unittest.TestCase):
         monitor.my_do_one = new_do_one
 
 
-    def cleanup(self):
-        self.lc.uninstall()
-        watcher.handle_spec = vpc.handle_spec = self.old_handle_spec
+    def additional_cleanup(self):
         shutil.rmtree(self.temp_dir)
 
 
+    def cleanup(self):
+        self.lc.uninstall()
+        watcher.handle_spec = vpc.handle_spec = self.old_handle_spec
+        self.additional_cleanup()
+
+
+    def write_config(self, data):
+        with open(self.abs_fname, "w+") as f:
+            f.write(json.dumps(data))
+
+
+    def start_thread_log_tuple(self):
+        return ('root', 'INFO',
+                "Starting to watch route spec file '%s' for changes..." %
+                self.abs_fname)
+
+
+    def change_event_log_tuple(self):
+        return ('root', 'INFO',
+                "Detected file change event for %s" %
+                self.abs_fname)
+
+
     def test_watcher_thread_no_config(self):
+        os.remove(self.abs_fname)
         self.tinfo = watcher._start_working_threads(self.conf, 2)
 
         time.sleep(0.5)
@@ -205,48 +236,52 @@ class TestWatcher(unittest.TestCase):
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
         self.lc.check(
+            self.start_thread_log_tuple(),
             ('root',
              'ERROR',
-             "Config file ignored: Cannot open file: "
-             "[Errno 2] No such file or directory: '%s'" % self.abs_fname),
-            ('root', 'DEBUG', 'Started config file change monitoring thread'))
+             "Config ignored: Cannot open file: "
+             "[Errno 2] No such file or directory: '%s'" % self.abs_fname))
 
         watcher._stop_working_threads(self.tinfo)
 
 
     def test_watcher_thread_wrong_config(self):
-        inp = "MALFORMED"
-        with open(self.abs_fname, "w+") as f:
-            f.write(json.dumps(inp))
-
         self.tinfo = watcher._start_working_threads(self.conf, 2)
 
-        time.sleep(0.5)
-        # Config file doesn't exist yet, so we should get an error.
+        inp = "MALFORMED"
+        self.write_config(inp)
+
+        time.sleep(2)
+        # Config file malformed
         self.lc.check(
+            self.start_thread_log_tuple(),
+            self.change_event_log_tuple(),
             ('root', 'ERROR',
-             'Config file ignored: Expected dictionary at top level'),
-            ('root', 'DEBUG', 'Started config file change monitoring thread'))
+             'Config ignored: Expected dictionary at top level'),
+            ('root', 'DEBUG', 'Started health monitoring thread'),
+            ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
 
         watcher._stop_working_threads(self.tinfo)
 
 
     def test_watcher_thread(self):
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        time.sleep(2)
+        self.lc.check(
+             self.start_thread_log_tuple(),
+             ('root', 'DEBUG', 'Started health monitoring thread'),
+             ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
+
+        self.lc.clear()
+
         inp = {
                   u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
                   u"10.2.0.0/16" : [ u"3.3.3.3" ]
               }
-        with open(self.abs_fname, "w+") as f:
-            f.write(json.dumps(inp))
+        self.write_config(inp)
 
-        self.tinfo = watcher._start_working_threads(self.conf, 2)
 
         time.sleep(2)
-        self.lc.check(
-             ('root', 'DEBUG', 'Started config file change monitoring thread'),
-             ('root', 'DEBUG', 'Started health monitoring thread'),
-             ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
-        self.lc.clear()
 
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
@@ -257,6 +292,8 @@ class TestWatcher(unittest.TestCase):
         time.sleep(2)
 
         self.lc.check(
+            self.change_event_log_tuple(),
+            ('root', 'DEBUG', 'Checking live IPs: (none alive)'),
             ('root', 'DEBUG',
              'New route spec detected. Updating health-monitor '
              'with: 1.1.1.1,2.2.2.2,3.3.3.3'),
@@ -268,8 +305,7 @@ class TestWatcher(unittest.TestCase):
                   u"10.1.0.0/16" : [ u"4.4.4.4", u"2.2.2.2" ],
                   u"10.2.0.0/16" : [ u"3.3.3.3" ]
               }
-        with open(self.abs_fname, "w+") as f:
-            f.write(json.dumps(inp))
+        self.write_config(inp)
 
         time.sleep(1)
         """
@@ -297,6 +333,60 @@ class TestWatcher(unittest.TestCase):
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
 
         watcher._stop_working_threads(self.tinfo)
+
+
+PORT = 33289
+
+class TestWatcherHttp(TestWatcherConffile):
+    """
+    Same configs and tests as the conffile test case, except that the config is
+    written with an HTTP request.
+
+    We just need to overwrite a few hooks.
+
+    """
+    def additional_setup(self):
+        global PORT
+        self.conf = {
+            "addr"        : "localhost",
+            "port"        : PORT,
+            "region_name" : "dummy-region",
+            "vpc_id"      : "dummy-vpc",
+            "mode"        : "http"
+        }
+        # Changing the listen port number of the server for each test, since we
+        # can't reuse the socket addresses in such rapid succession
+        PORT += 1
+
+    def additional_cleanup(self):
+        pass
+
+    def write_config(self, data):
+        url = "http://%s:%s/route_spec" % \
+                            (self.conf['addr'], self.conf['port'])
+        requests.post(url, json=data)
+
+    def start_thread_log_tuple(self):
+        return ('root', 'INFO',
+                "Starting to watch for route spec on 'localhost:%d'..." %
+                self.conf['port'])
+
+    def change_event_log_tuple(self):
+        return ('root', 'INFO', "New route spec posted")
+
+    def test_watcher_thread_no_config(self):
+        self.tinfo = watcher._start_working_threads(self.conf, 2)
+
+        time.sleep(0.5)
+        # Config file doesn't exist yet, so we should get an error.
+        # Health monitor is started with a second delay, so no messages from
+        # there, yet.
+        self.lc.check(self.start_thread_log_tuple())
+
+        watcher._stop_working_threads(self.tinfo)
+
+
+
 
 
 if __name__ == '__main__':

@@ -20,7 +20,6 @@ limitations under the License.
 #
 
 import unittest
-import ping
 import socket
 import Queue
 import time
@@ -32,6 +31,21 @@ import monitor
 # monkey-patch the health check. Thiis isn't exactly thread-safe, but since
 # the tests are normally run in a single thread, this should be ok.
 _FAILED_PREFIX = None
+
+class TestPing(unittest.TestCase):
+    def test_sending_receiving_ping(self):
+        # Only thing we can really send a ping to that doesn't leak of the host
+        # is localhost.
+        try:
+            res = monitor.my_do_one("127.0.0.1", 1234, 1, 16)
+        except socket.error as e:
+            if "running as root" in str(e):
+                # We are not running as root, therefore, can't execute the
+                # ping. Need to just accept that.
+                print "@@@ Not running as root, can't test ping."
+                return
+            raise
+        self.assertTrue(res is not None)
 
 
 class TestQueues(unittest.TestCase):
@@ -62,7 +76,7 @@ class TestQueues(unittest.TestCase):
         # local, no real pings). We get back the thread and the two
         # communication queues.
         self.monitor_thread, self.q_monitor_ips, self.q_failed_ips = \
-                    monitor.start_monitor_in_background(0.1)
+                    monitor.start_monitor_thread(0.1)
 
         # Install the cleanup, which will send the stop signal to the monitor
         # thread once we are done with our test

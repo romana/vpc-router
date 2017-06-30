@@ -19,8 +19,18 @@ limitations under the License.
 # Generally useful functions for the watcher module
 #
 
-from errors  import ArgsError
-from utils   import ip_check
+from errors import ArgsError
+
+import utils
+
+
+# A shared dict in which we keep the current route state, in case someone is
+# interested.
+CURRENT_STATE = {
+    "failed_ips" : [],
+    "route_spec" : {},
+    "routes" : {}
+}
 
 
 def parse_route_spec_config(data):
@@ -45,11 +55,11 @@ def parse_route_spec_config(data):
         raise ValueError("Expected dictionary at top level")
     try:
         for k, v in data.items():
-            ip_check(k, netmask_expected=True)
+            utils.ip_check(k, netmask_expected=True)
             if type(v) is not list:
                 raise ValueError("Expect list of IPs as values in dict")
             for ip in v:
-                ip_check(ip)
+                utils.ip_check(ip)
 
     except ArgsError as e:
         raise ValueError(e.message)

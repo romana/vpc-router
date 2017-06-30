@@ -22,9 +22,10 @@ import logging
 import sys
 
 from errors  import ArgsError, VpcRouteSetError
-from utils   import ip_check
-from vpc     import handle_request
-from watcher import start_watcher
+
+import utils
+import vpc
+import watcher
 
 
 def parse_args():
@@ -103,7 +104,7 @@ def parse_args():
                                 conf['port'])
             if not conf['addr'] == "localhost":
                 # maybe a proper address was specified?
-                ip_check(conf['addr'])
+                utils.ip_check(conf['addr'])
         elif conf['mode'] == 'conffile':
             # Sanity checks for various options needed in conffile mode:
             # - Route spec config file
@@ -131,9 +132,9 @@ def parse_args():
                     raise ArgsError("Router IP address only allowed for "
                                     "'add'.")
 
-            ip_check(conf['dst_cidr'], netmask_expected=True)
+            utils.ip_check(conf['dst_cidr'], netmask_expected=True)
             if conf['router_ip']:
-                ip_check(conf['router_ip'])
+                utils.ip_check(conf['router_ip'])
 
         else:
             raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
@@ -184,10 +185,10 @@ if __name__ == "__main__":
         if conf['mode'] != "cli":
             logging.info("*** Starting vpc-router in %s mode ***" %
                          conf['mode'])
-            start_watcher(conf)
+            watcher.start_watcher(conf)
         else:
             # One off run from the command line
-            found = handle_request(
+            found = vpc.handle_request(
                 conf['region_name'], conf['vpc_id'], conf['command'],
                 conf['router_ip'], conf['dst_cidr'])
             if found:
