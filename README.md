@@ -3,19 +3,24 @@
 vpc-router lets users avoid route table limitations and build large Kubernetes
 clusters with the performance and visibility of native VPC networking.
 
+vpc-router implements automatic route failover and backup routes, which AWS VPC
+does not provide natively.
+
 ## Introduction
 
 vpc-router is a utility for setting and deleting routes in Amazon EC2 VPC route
-tables. Each route is specified by a destination CIDR as well as the IP address
-of an EC2 instance, which should receive packets for any address in that CIDR.
+tables and specifically for automatically managing route failover.
 
-In addition, vpc-router can continuously monitor instance health and perform an
-immediate route failover in case of a detected instance failure.
+Each route is specified by a destination CIDR as well as a list of IP addresses
+of EC2 instances, which are eligible to receive packets for the CIDR. An
+instance from the list is chosen and a route is set. vpc-router continuously
+monitors instance health and performs an immediate route failover to another
+instance in the set in case of a detected instance failure.
 
-Routes can be configured in different ways, but most commonly, vpc-router will
-take route configs from a storage (file, in the future also KV store) or via
-HTTP requests.  It will make sure that routes in the VPC route table are
-updated as needed with every change to the route config.
+Routes can be configured in different ways, but most commonly, vpc-router takes
+route configs from storage (a config file, in the future also a KV store) or
+via HTTP requests. It will make sure that routes in the VPC route table are
+updated as needed with every detected change to the route config.
 
 By default, it applies all route updates to all the route tables it can find
 within a specified VPC.
@@ -56,80 +61,10 @@ We welcome any contributions, bug reports or feedback.
 Please read DEVELOPERS.txt for information that might be useful if you wish to
 develop or contribute to vpc-router.
 
-## Modes of operation
+## Configuration: The route spec
 
-The vpc-router can be used in various modes:
-
-* CLI mode: a command line utility for a one-off operation
-* Watcher mode: as daemon that monitors changes to a config file or takes new
-  route configurations in via HTTP requests. It also monitors the health of
-  instances and updates routes accordingly (this is the most common mode for
-  production deployments)
-
-## CLI mode: Using vpc-router for single commands
-
-When using vpc-router from the command line as an interactive utility, you can
-use the '-h' or '--help' options for a brief overview of the available options.
-
-There are three commands, which are understood by vpc-router:
-
-* add: Create a new route for the specified CIDR and target EC2 instance IP
-  address. This command will add the route to all route tables of the specified
-  VPC.
-* show: Produce output that shows whether the route already exists on any of
-  the route tables of the VPC.
-* del: Delete the specified route from all route tables of the specified VPC.
-
-### Examples for interactive command line mode
-
-**Setting a route ('add' command)**:
-
-The 'ip' option is the IP address of the EC2 instance that should act as
-router.
-
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c add --CIDR 10.55.0.0/16 --ip 10.33.20.142
-
-This operation is idempotent.
-
-*Note: An 'add' command for an existing route with the same CIDR, but different
-router IP address, will update the route to the new IP address.*
-
-**Checking whether a route exists ('show' command):**
-
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c show --CIDR 10.55.0.0/16
-
-If the specified route doesn't exist, the exit code will be '1'.
-
-**Deleting an existing route ('del' command):**
-
-    $ ./vpc-router.py -r us-east-1 -v vpc-350d6a51 -c del --CIDR 10.55.0.0/16
-
-If the specified route doesn't exist, the exit code will be '1'.
-
-
-## Watcher mode: Using vpc-router as a configuration and health monitoring server
-
-To use vpc-router as a permanently running daemon, simply specify the region,
-VPC ID as well as the '-m / --mode' flag with either 'conffile' or 'http' as
-parameter.
-
-    $ ./vpc-router.py -m http -r us-east-1 -v vpc-350d6a51
-
-Or:
-
-    $ ./vpc-router.py -m conffile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
-
-In 'http' mode, vpc-router by default uses port 33289 and listens on localhost.
-However, you can use the '-p' (port) and -a ('address') options to specify
-different listening port and address. Specifically, use '-a 0.0.0.0' to listen
-on any interface and address.
-
-In 'conffile' mode the '-f' option must be used to specify the route spec
-config file. It must exist when the server is started. The server will then
-continuously monitor this file for changes.
-
-A route spec configuration - either in the config file or via an HTTP request -
-has to be provided in JSON format. It looks something like this:
+vpc-router requires a route spec configuration in JSON format. It looks
+something like this:
 
     {
         "10.55.16.0/24" : [ "10.33.20.142" ],
@@ -138,64 +73,89 @@ has to be provided in JSON format. It looks something like this:
     
 Each entry in the dictionary is keyed on the route's CIDR and then lists a
 number of eligible hosts, which can act as the target/router for this route.
-vpc-router will randomly choose a host from those sets of hosts.
+vpc-router randomly chooses an instance from a route's set of hosts.
 
-The health of those hosts is monitored (currently by sending ICMP echo
-request). If a host acting as router fails, vpc-router immediately switches the
-route to an alternative host from the set.
+If a route to a specified CIDR does not exist in the VPC's route tables, or if
+it does not specify a target that's contained in the specified host list,
+vpc-router creates or updates the route.
 
+The health of those hosts is continuously monitored. If a host acting as router
+fails, vpc-router immediately switches the route to a different host from the
+set, if an alternative is available and healthy.
 
-## Watcher mode: Conffile or HTTP
+Note that vpc-router takes control of the routing tables and removes any
+entries of this type (interfaces on instances as target) if they are not part
+of the route spec.
 
-This is the default mode of operation, most suitable for production
-deployments. In this mode, the vpc-router continously runs as a daemon. It
-retrieves routing specs either from a config file, which it continuously
-monitors for any changes, or via HTTP requests:
+## Modes of operation
 
-* Specify 'conffile' as mode and provide a config file via the -f option.
-* Specify 'http' as mode and optionally a listen address and port (-a and -p
-  options, default is 'localhost' and 33289, respectively).
+There are two modes in which vpc-router can receive configuration updates:
 
-When using the watcher mode, vpc-router will continuously perform health checks on the
-instances and update routes to an alternate instance if the current route
-target should fail.
+* conffile: Continuosly monitor a route spec configuration file for any changes.
+* http: Receive updated route specs via HTTP POSTs.
+
+The format of the config data in both cases (config file or POST request) is
+the identical.
+
+### Mode 'conffile' 
+
+The following command starts vpc-router as a service daemon in 'conffile'
+mode:
 
     $ ./vpc-router.py -m conffile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
 
-or:
+The used options are:
 
-    $ ./vpc-router.py -m http -f route-spec.conf -r us-east-1 -v vpc-350d6a51
+* `-m conffile` tells vpc-router to take config changes from a specified route
+  spec file.
+* `-f` specifies the name of the route spec config file.
+* `-r` specifies the AWS region to which vpc-router should connect.
+* `-v` specifies the VPC for which vpc-router should perform route updates.
 
-The format of the route-spec is simple:
+In 'conffile' mode the `-f` option must be used to specify the route spec
+config file. It must exist when the server is started. The server then
+continuously monitors this file for changes.
 
-    {
-        "10.55.16.0/24" : [ "10.33.20.142" ],
-        "10.55.17.0/24" : [ "10.33.20.93", "10.33.20.95" ],
-        "10.66.17.0/24" : [ "10.33.20.93" ]
-    }
+You can see an example route spec file in `examples/route_spec_1.conf`.
 
-For each CIDR a list of instance IP addresses provided. If a route to the CIDR
-doesn't exist then a route to a randomly chosen host in the list is created for
-the CIDR. Routes to CIDRs not mentioned in the spec are deleted.
+### Mode 'http'
 
-The host list may be changed, but as long as the current route destination is
-still in the list the route will not be updated, to avoid unnecessary updates.
+The following command starts vpc-router as a service daemon in the 'http'
+mode. In opens a server port on which it listens for new route specs:
 
-This route spec either needs to be present in the config file (with '-m
-conffile'), or it needs to be POSTed to
+    $ ./vpc-router.py -m http -r us-east-1 -v vpc-350d6a51
+
+The used options are:
+
+* `-m http` tells vpc-router to start listening on a certain address and port
+for HTTP POST requests containing new route specs.
+* `-r` specifies the AWS region to which vpc-router should connect.
+* `-v` specifies the VPC for which vpc-router should perform route updates.
+
+In 'http' mode, vpc-router by default uses port 33289 and listens on localhost.
+However, you can use the `-p` (port) and `-a` ('address') options to specify a
+different listening port or address. Specifically, use `-a 0.0.0.0` to listen
+on any interface and address.
+
+There are a two URLs offered in 'http' mode:
+
+* `/route_spec`: POST a new route spec here, or GET the current route spec.
+* `/status`: GET a status overview, containing the route spec as well as the
+  current list of any failed IP addresses and currently configured routes.
+
+In 'http' mode, new route specs are POSTed to
 http://<listen-address>:<port>/route_spec
 
 For example:
 
     $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route_spec" -d '{"10.55.0.0/16" : [ "10.33.20.142" ], "10.66.17.0/24" : [ "10.33.20.93", "10.33.30.22" ]}'
 
+## Continuous monitoring
 
-### Continuous monitoring
-
-Continuos monitoring is performed when running in watcher mode. If an instance
-does not appear healthy anymore and it is a current target for a route then the
-route will be automatically updated to point to an alternate target, if a
-healthy one is available.
+Continuos monitoring is performed for all hosts listed in the route spec. If an
+instance does not appear healthy anymore and it is a current target for a route
+then the route will be automatically updated to point to an alternate target,
+if a healthy one is available.
 
 Currently, the health check consists of an ICMP echo request. In the future,
 this will be made configurable.

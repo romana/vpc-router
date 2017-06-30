@@ -86,32 +86,6 @@ class MyWSGIRefServer(bottle.ServerAdapter):
         self.server.shutdown()
 
 
-'''
-def _get_route_params(req, from_body=False):
-    """
-    Extracts and checks dst_cidr and optional router_ip parameters from
-    request URL.
-
-    """
-    if from_body:
-        try:
-            params = json.loads(req.body.read())
-        except Exception:
-            raise ArgsError("Malformed request body")
-
-    else:
-        params = request.query
-
-    dst_cidr  = params['dst_cidr']
-    ip_check(dst_cidr, netmask_expected=True)
-
-    router_ip = params.get('router_ip')
-    if router_ip:
-        ip_check(router_ip)
-
-    return dst_cidr, router_ip
-'''
-
 @APP.route('/', method='GET')
 def handle_root_request():
     """
