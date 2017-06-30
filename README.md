@@ -11,7 +11,8 @@ immediate route failover in case of a detected instance failure.
 
 Routes can be configured in different ways, but most commonly, vpc-router will
 take route configs from a storage (file or KV store) or via HTTP requests.
-It will make sure that routes in the VPC route table are updated as needed.
+It will make sure that routes in the VPC route table are updated as needed with
+every change to the route config.
 
 By default, it applies all route updates to all the route tables it can find
 within a specified VPC.
