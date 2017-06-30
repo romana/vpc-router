@@ -275,13 +275,7 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # the spec, update the routes as needed. Note that the status of the routes
     # is checked/updated for every route table, so we may see more than one
     # update for a given route.
-    # Also ensure that the same route in different route tables points to the
-    # same host. Since replacement hosts are chosen randomly, this is not
-    # automatically the case, since each RT is processed separately. We use
-    # a bit of extra logic to make sure entries for the same route in all RTs
-    # are the same.
     routes_in_rts = {}    # quick lookup of VPC routes by CIDR in 2nd loop
-    router_for_cidr = {}  # chosen routers for each route
     for rt in vpc_info['route_tables']:
         routes_in_rts[rt.id] = []
         for r in rt.routes:
@@ -301,43 +295,22 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
 
             if hosts:
                 # This route is in the spec!
-                # While we looped here, have we seen this route already in the
-                # VPC? If so, is this the same host?
-                prev_addr = router_for_cidr.get(dcidr)
-
-                if ipaddr in hosts and not ipaddr_has_failed and \
-                                (prev_addr is None or ipaddr == prev_addr):
-                    # Host in spec, healthy and the same as in other RTs? All
-                    # is good...
+                if ipaddr in hosts and not ipaddr_has_failed:
+                    # Host in spec and healthy? All good...
                     logging.info("--- route exists already in RT '%s': "
                                  "%s -> %s (%s, %s)" %
                                  (rt.id, dcidr, ipaddr, instance.id, eni.id))
-
-                    # Remember this host for this route. As we iterate over
-                    # more RTs we can use this to check that in all RTs the
-                    # entry is for the same host.
-                    router_for_cidr[dcidr] = ipaddr
-
                 else:
-                    # Something's not right. Choose a new host.
-                    if ipaddr_has_failed and prev_addr is not None and \
-                                prev_addr not in failed_ips:
-                        # If there's a valid, alive host for this route in a
-                        # previously seen RT then we'll just use that one
-                        new_addr = prev_addr
-                    else:
-                        # In all other cases, select a host randomly
-                        new_addr = _choose_from_hosts(hosts, failed_ips)
-                        router_for_cidr[dcidr] = new_addr
-
-                        if not new_addr:
-                            # Current route doesn't point to an address in the
-                            # spec or that IP has failed. Choose a new router
-                            # IP address from the host list.
-                            logging.warning("--- cannot find available target "
-                                            "for route %s! "
-                                            "Nothing I can do..." % dcidr)
-                            continue
+                    # Select a new host randomly
+                    new_addr = _choose_from_hosts(hosts, failed_ips)
+                    if not new_addr:
+                        # Current route doesn't point to an address in the
+                        # spec or that IP has failed. Choose a new router
+                        # IP address from the host list.
+                        logging.warning("--- cannot find available target "
+                                        "for route %s! "
+                                        "Nothing I can do..." % dcidr)
+                        continue
 
                     # Host is chosen, time to update the route to point to the
                     # new host.
@@ -383,20 +356,11 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
         for rt_id, dcidr_list in routes_in_rts.items():
             if dcidr not in dcidr_list:
                 try:
-                    # The route does not exist in this route table yet! First
-                    # let's see if we already have a host for this CIDR (maybe
-                    # from another route table)...
-                    if dcidr in router_for_cidr:
-                        # Use the host we already used in another RT for this
-                        # CIDR
-                        new_addr = router_for_cidr[dcidr]
-                    else:
-                        # No, haven't seen this CIDR in any other RT before.
-                        # Let's choose a host randomly.
-                        new_addr = _choose_from_hosts(hosts, failed_ips)
-                        instance, eni = find_instance_and_emi_by_ip(
-                                                          vpc_info, new_addr)
-                        router_for_cidr[dcidr] = ( instance, eni, new_addr)
+                    # The route does not exist in this route table yet!
+                    # Let's choose a host randomly.
+                    new_addr = _choose_from_hosts(hosts, failed_ips)
+                    instance, eni = find_instance_and_emi_by_ip(
+                                                      vpc_info, new_addr)
 
                     logging.info("--- adding route in RT '%s' "
                                  "%s -> %s (%s, %s)" %
