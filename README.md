@@ -1,9 +1,11 @@
 # vpc-router
 
+vpc-router lets users avoid route table limitations and build large Kubernetes clusters with the performance and visability of native VPC networking.
+
 ## Introduction
 
-vpc-router is a utility for the setting/deleting of routes in a VPC route
-table, consisting of a destination CIDR as well as the IP address of an EC2
+vpc-router is a utility for setting and deleting routes in Amazon EC2 VPC route
+tables. Each route is specified by a destination CIDR as well as the IP address of an EC2
 instance, which should receive packets for any address in that CIDR.
 
 In addition, vpc-router can continuously monitor instance health and perform an
@@ -19,12 +21,13 @@ within a specified VPC.
 
 ### Project origin
 
-This program was developed for the [Romana project](http://romana.io), in order
-to seamlessly deploy large [Kubernetes](https://kubernetes.io) clusters across
-multiple availability zones in an Amazon VPC. While specifically designed to
-scratch our itch for this usage scenario in the context of Romana and
-Kubernetes, the vpc-router does not depend on either project and can also be
-used stand-alone.
+This program was developed for the [Romana project](http://romana.io) to 
+overcome the limit imposed on VPC route table entries (50 by default), which constricts the size of clusters.  Avoiding this limit typically required running an overlay network, which does not offer the performance and visibility of native VPC networking. 
+
+Some users prefer to run CNI network providers that support more advance network policy APIs. However, most CNI pod networks require an overlay when clusters are split across Availability Zones (AZs), preventing HA clusters from delivering native VPC network performance. Romana, using vpc-router can build CNI pod networks across zones without an overlay.
+ 
+
+While vpc-router was specifically designed for use with Romana and to take advantage of its topology aware IPAM in these Kubernetes deployment scenarios, it does not depend on either project and can also be used stand-alone.
 
 ## Installation
 
