@@ -126,9 +126,13 @@ def get_instance_private_ip_from_route(instance, route):
     return ipaddr, eni if ipaddr else None
 
 
-def manage_route(con, vpc_info, cmd, ip, cidr):
+def manage_route_for_cli(con, vpc_info, cmd, ip, cidr):
     """
     Set, delete or show the route to the instance, specified by IP address.
+
+    This is used for CLI requests to manage routes. Because CLI requests are
+    one offs, the the logic here is different than the route spec processing
+    performed in the 'normal' daemon mode.
 
     For show and delete only the CIDR is needed (the IP address can be left
     as None).
@@ -403,9 +407,9 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
         logging.error("vpc-router could not authenticate")
 
 
-def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
+def handle_cli_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
     """
-    Connect to region and handle a route add/del/show request.
+    Connect to region and handle a route add/del/show request from the CLI.
 
     Returns accumulated messages in a list, as well as a 'found' flag that
     indicates whether the specified routes for a show or del command were
@@ -420,7 +424,8 @@ def handle_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        found    = manage_route(con, vpc_info, cmd, router_ip, dst_cidr)
+        found    = manage_route_for_cli(con, vpc_info, cmd, router_ip,
+                                        dst_cidr)
         con.close()
 
         return found

@@ -154,7 +154,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         con = vpc.connect_to_region("ap-southeast-2")
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
-        vpc.manage_route(con, d, "add", self.i1ip, "10.55.0.0/16")
+        vpc.manage_route_for_cli(con, d, "add", self.i1ip, "10.55.0.0/16")
         i, eni = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
         self.lc.check(
             ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
@@ -171,7 +171,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # it shows as 'different destination'.
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.manage_route(con, d, "add", self.i1ip, "10.55.0.0/16")
+        vpc.manage_route_for_cli(con, d, "add", self.i1ip, "10.55.0.0/16")
         self.lc.check(
             ('root', 'DEBUG', 'Adding route: 10.55.0.0/16'),
             ('root', 'INFO',
@@ -181,13 +181,13 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # Adding with unknown instance IP: Should throw exception
         self.assertRaises(errors.VpcRouteSetError,
-                          vpc.manage_route,
+                          vpc.manage_route_for_cli,
                           con, d, "add", "8.8.8.8", "10.55.0.0/16")
 
         # Listing the route
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.manage_route(con, d, "show", None, "10.55.0.0/16")
+        vpc.manage_route_for_cli(con, d, "show", None, "10.55.0.0/16")
         # See the 'unknowns' in the log messages? This is normally the IP
         # address and eni associated with the route, but it seems as moto
         # doesn't implement storing that.
@@ -201,7 +201,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Deleting the route
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.manage_route(con, d, "del", None, "10.55.0.0/16")
+        vpc.manage_route_for_cli(con, d, "del", None, "10.55.0.0/16")
         self.lc.check(
             ('root', 'DEBUG', 'Deleting route: 10.55.0.0/16'),
             ('root', 'INFO',
@@ -212,7 +212,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Now try to delete the same route again: Error
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.manage_route(con, d, "del", None, "10.55.0.0/16")
+        vpc.manage_route_for_cli(con, d, "del", None, "10.55.0.0/16")
         self.lc.check(
             ('root', 'DEBUG', 'Deleting route: 10.55.0.0/16'),
             ('root', 'INFO',

@@ -10,3 +10,4 @@ nosetests -v --with-coverage --cover-erase \
           --cover-package monitor
 
 echo "@@@ Coverage report: file://$COVERAGE_REPORT_DIR/index.html"
+echo

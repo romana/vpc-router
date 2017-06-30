@@ -188,7 +188,7 @@ if __name__ == "__main__":
             watcher.start_watcher(conf)
         else:
             # One off run from the command line
-            found = vpc.handle_request(
+            found = vpc.handle_cli_request(
                 conf['region_name'], conf['vpc_id'], conf['command'],
                 conf['router_ip'], conf['dst_cidr'])
             if found:
