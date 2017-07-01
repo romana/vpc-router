@@ -74,7 +74,7 @@ def get_vpc_overview(con, vpc_id, region_name):
                                    "in region '%s'." % (vpc_id, region_name))
     d['vpc'] = vpc
 
-    vpc_filter = { "vpc-id" : vpc_id } # Will use this filter expression a lot
+    vpc_filter = { "vpc-id" : vpc_id }  # Will use this filter expression a lot
 
     # Now find the subnets, route tables and instances within this VPC
     d['subnets']      = con.get_all_subnets(filters=vpc_filter)
@@ -87,7 +87,7 @@ def get_vpc_overview(con, vpc_id, region_name):
     # Maintain a quick instance lookup for convenience
     d['instance_by_id'] = {}
     for i in d['instances']:
-         d['instance_by_id'][i.id] = i
+        d['instance_by_id'][i.id] = i
 
     # TODO: Need a way to find which route table we should focus on.
 
@@ -169,13 +169,9 @@ def manage_route_for_cli(con, vpc_info, cmd, ip, cidr):
                     instance = vpc_info['instance_by_id'][r.instance_id]
                     ipaddr, eni = get_instance_private_ip_from_route(
                                                                 instance, r)
-                    if not ipaddr:
-                        ipaddr = "(unknown)"
 
-                    if not eni:
-                        eni_id = "(unknown)"
-                    else:
-                        eni_id = eni.id
+                    ipaddr = ipaddr if ipaddr else "(unknown)"
+                    eni_id = eni.id if eni    else "(unknown)"
 
                     if cmd == "show":
                         logging.info("--- route exists in RT '%s': "
@@ -191,7 +187,7 @@ def manage_route_for_cli(con, vpc_info, cmd, ip, cidr):
                         con.delete_route(route_table_id         = rt.id,
                                          destination_cidr_block = cidr)
                 else:
-                    # For add the eni, instance and ip have been passed in
+                    # For 'add' the eni, instance and ip have been passed in
                     if r.interface_id == eni.id:
                         logging.info("--- route exists already in RT '%s': "
                                      "%s -> %s (%s, %s)" %
@@ -239,7 +235,7 @@ def _choose_from_hosts(ip_list, failed_ips):
 
     # First choice is randomly selected, but it may actually be a failed
     # host...
-    first_choice = random.randint(0, len(ip_list)-1)
+    first_choice = random.randint(0, len(ip_list) - 1)
 
     # ... so start at the chosen first position and then iterate one by one
     # from there, until we find an IP that's not failed.
@@ -286,8 +282,8 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
         routes_in_rts[rt.id] = []
         for r in rt.routes:
             dcidr = r.destination_cidr_block
-            routes_in_rts[rt.id].append(dcidr) # remember we've seen this route
-            if r.instance_id == None:
+            routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
+            if r.instance_id is None:
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
                 # aren't attached to a particular instance. We skip those.

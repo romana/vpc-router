@@ -54,7 +54,7 @@ def my_do_one(dest_addr, ping_id, timeout, psize):
                 " running as root."
             )
             raise socket.error(msg)
-        raise # raise the original error
+        raise  # raise the original error
 
     ping.send_one_ping(my_socket, dest_addr, ping_id, psize)
     delay = ping.receive_one_ping(my_socket, ping_id, timeout)
@@ -143,7 +143,7 @@ def _do_health_checks(list_of_ips):
         thread.join()
 
     # ... and gather up the results and send back if needed
-    return [ k for k,v in results.items() if v is None ]
+    return [ k for (k, v) in results.items() if v is None ]
 
 
 def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
@@ -169,9 +169,11 @@ def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
     # received updates, the list of IPs in here is regularly checked.
     list_of_ips             = []
     currently_failed_ips    = set()
-    recheck_failed_interval = 10 # Accumulating failed IPs for 10 intervals
-                                 # before rechecking them to see if they are
-                                 # alive again
+
+    # Accumulating failed IPs for 10 intervals before rechecking them to see if
+    # they are alive again
+    recheck_failed_interval = 10
+
     try:
         interval_count = 0
         while True:

@@ -28,15 +28,11 @@ import vpc
 import watcher
 
 
-def parse_args():
+def _setup_arg_parser():
     """
-    Parse command line arguments and return relevant values in a dict.
-
-    Also perform basic sanity checking on some arguments.
+    Configure and return the argument parser for the command line options.
 
     """
-    conf = {}
-    # Setting up the command line argument parser
     parser = argparse.ArgumentParser(
         description="VPC router: Manage routes in VPC route table")
     # General arguments
@@ -80,6 +76,71 @@ def parse_args():
     parser.add_argument('-i', '--ip', dest="router_ip",
                         help="IP address of router instance "
                              "(only in CLI more for 'add' command)")
+    return parser
+
+
+def _check_http_mode_conf(conf):
+    """
+    Sanity checks for options needed for http mode.
+
+    """
+    if not 0 < conf['port'] < 65535:
+        raise ArgsError("Invalid listen port '%d' for http mode." %
+                        conf['port'])
+    if not conf['addr'] == "localhost":
+        # maybe a proper address was specified?
+        utils.ip_check(conf['addr'])
+
+
+def _check_conffile_mode_conf(conf):
+    """
+    Sanity checks for options needed for conffile mode.
+
+    """
+    if not conf['file']:
+        raise ArgsError("A config file needs to be specified (-f).")
+    try:
+        # Check we have access to the config file
+        f = open(conf['file'], "r")
+        f.close()
+    except IOError as e:
+        raise ArgsError("Cannot open config file '%s': %s" %
+                        (conf['file'], e))
+
+
+def _check_cli_mode_conf(conf):
+    """
+    Sanity check for options needed for CLI mode.
+
+    """
+    if conf['command'] not in [ 'add', 'del', 'show' ]:
+        raise ArgsError("Only commands 'add', 'del' or 'show' are "
+                        "allowed (not '%s')." % conf['command'])
+    if not conf['dst_cidr']:
+        raise ArgsError("Destination CIDR argument missing.")
+    if conf['command'] == 'add':
+        if not conf['router_ip']:
+            raise ArgsError("Router IP address argument missing.")
+    else:
+        if conf['router_ip']:
+            raise ArgsError("Router IP address only allowed for "
+                            "'add'.")
+
+    utils.ip_check(conf['dst_cidr'], netmask_expected=True)
+    if conf['router_ip']:
+        utils.ip_check(conf['router_ip'])
+
+
+def parse_args():
+    """
+    Parse command line arguments and return relevant values in a dict.
+
+    Also perform basic sanity checking on some arguments.
+
+    """
+    conf = {}
+    # Setting up the command line argument parser
+    parser = _setup_arg_parser()
 
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
@@ -94,48 +155,14 @@ def parse_args():
     conf['logfile']     = args.logfile
     conf['verbose']     = args.verbose
 
-    # Sanity checking of arguments
+    # Sanity checking of arguments.
     try:
         if conf['mode'] == 'http':
-            # Sanity checks for various options needed in http mode:
-            # - HTTP port and address
-            if not 0 < conf['port'] < 65535:
-                raise ArgsError("Invalid listen port '%d' for http mode." %
-                                conf['port'])
-            if not conf['addr'] == "localhost":
-                # maybe a proper address was specified?
-                utils.ip_check(conf['addr'])
+            _check_http_mode_conf(conf)
         elif conf['mode'] == 'conffile':
-            # Sanity checks for various options needed in conffile mode:
-            # - Route spec config file
-            if not conf['file']:
-                raise ArgsError("A config file needs to be specified (-f).")
-            try:
-                # Check we have access to the config file
-                f = open(conf['file'], "r")
-                f.close()
-            except IOError as e:
-                raise ArgsError("Cannot open config file '%s': %s" %
-                                (conf['file'], e))
+            _check_conffile_mode_conf(conf)
         elif conf['mode'] == 'cli':
-            # Sanity check if started with command line arguments
-            if conf['command'] not in [ 'add', 'del', 'show' ]:
-                raise ArgsError("Only commands 'add', 'del' or 'show' are "
-                                "allowed (not '%s')." % conf['command'])
-            if not conf['dst_cidr']:
-                raise ArgsError("Destination CIDR argument missing.")
-            if conf['command'] == 'add':
-                if not conf['router_ip']:
-                    raise ArgsError("Router IP address argument missing.")
-            else:
-                if conf['router_ip']:
-                    raise ArgsError("Router IP address only allowed for "
-                                    "'add'.")
-
-            utils.ip_check(conf['dst_cidr'], netmask_expected=True)
-            if conf['router_ip']:
-                utils.ip_check(conf['router_ip'])
-
+            _check_cli_mode_conf(conf)
         else:
             raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
 

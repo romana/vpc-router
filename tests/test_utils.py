@@ -24,7 +24,9 @@ import unittest
 from utils  import ip_check
 from errors import ArgsError
 
+
 class TestIpCheck(unittest.TestCase):
+
     def test_correct(self):
         #
         # Specific test for the ip_check function, using correct values.

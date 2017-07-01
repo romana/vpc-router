@@ -28,7 +28,6 @@ import tempfile
 import time
 import unittest
 
-from logging import Filter
 from testfixtures       import LogCapture
 from watchdog.observers import Observer
 
@@ -36,29 +35,22 @@ import monitor
 import watcher
 import vpc
 
-RES = None
+from . import common
 
-class MyFilter(Filter):
-    def filter(self, record):
-        if record.name != "root":
-            return 0
-        else:
-            return 1
+RES = None
 
 
 class TestRouteSpec(unittest.TestCase):
 
     def setUp(self):
         self.lc = LogCapture()
-        self.lc.addFilter(MyFilter())
+        self.lc.addFilter(common.MyLogCaptureFilter())
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.cleanup)
-
 
     def cleanup(self):
         self.lc.uninstall()
         shutil.rmtree(self.temp_dir)
-
 
     def test_file_event_watcher(self):
         #
@@ -87,7 +79,7 @@ class TestRouteSpec(unittest.TestCase):
             # A write event to the file should be detected
             f.write("blah")
             f.flush()
-            time.sleep(1) # not instantaneous, so need to wait a little
+            time.sleep(1)  # not instantaneous, so need to wait a little
 
             # File is malformed, so should not have received a message
             self.assertTrue(myq.msg is None)
@@ -107,7 +99,6 @@ class TestRouteSpec(unittest.TestCase):
                 ('root', 'ERROR',
                  "Config ignored: Cannot open file: [Errno 2] "
                  "No such file or directory: 'r.spec'"))
-
 
     def test_route_spec_parser(self):
         #
@@ -168,17 +159,17 @@ class TestWatcherConffile(unittest.TestCase):
         # start, even if there's nothing in it
         self.write_config({})
 
-
     def setUp(self):
         self.lc = LogCapture()
         self.lc.setLevel(logging.DEBUG)
-        self.lc.addFilter(MyFilter())
+        self.lc.addFilter(common.MyLogCaptureFilter())
 
         self.additional_setup()
 
         self.addCleanup(self.cleanup)
 
         self.old_handle_spec = vpc.handle_spec
+
         # Monkey patch the handle_spec function, which is called by the
         # watcher. The handle_spec function is defined in the VPC module.
         # However, it was directly imported by the watcher module, so it's now
@@ -199,33 +190,27 @@ class TestWatcherConffile(unittest.TestCase):
                 return 0.5     # indicates success
         monitor.my_do_one = new_do_one
 
-
     def additional_cleanup(self):
         shutil.rmtree(self.temp_dir)
-
 
     def cleanup(self):
         self.lc.uninstall()
         watcher.handle_spec = vpc.handle_spec = self.old_handle_spec
         self.additional_cleanup()
 
-
     def write_config(self, data):
         with open(self.abs_fname, "w+") as f:
             f.write(json.dumps(data))
-
 
     def start_thread_log_tuple(self):
         return ('root', 'INFO',
                 "Starting to watch route spec file '%s' for changes..." %
                 self.abs_fname)
 
-
     def change_event_log_tuple(self):
         return ('root', 'INFO',
                 "Detected file change event for %s" %
                 self.abs_fname)
-
 
     def test_watcher_thread_no_config(self):
         os.remove(self.abs_fname)
@@ -243,7 +228,6 @@ class TestWatcherConffile(unittest.TestCase):
              "[Errno 2] No such file or directory: '%s'" % self.abs_fname))
 
         watcher._stop_working_threads(self.tinfo)
-
 
     def test_watcher_thread_wrong_config(self):
         self.tinfo = watcher._start_working_threads(self.conf, 2)
@@ -263,7 +247,6 @@ class TestWatcherConffile(unittest.TestCase):
 
         watcher._stop_working_threads(self.tinfo)
 
-
     def test_watcher_thread(self):
         self.tinfo = watcher._start_working_threads(self.conf, 2)
         time.sleep(2)
@@ -279,7 +262,6 @@ class TestWatcherConffile(unittest.TestCase):
                   u"10.2.0.0/16" : [ u"3.3.3.3" ]
               }
         self.write_config(inp)
-
 
         time.sleep(2)
 
@@ -337,6 +319,7 @@ class TestWatcherConffile(unittest.TestCase):
 
 PORT = 33289
 
+
 class TestWatcherHttp(TestWatcherConffile):
     """
     Same configs and tests as the conffile test case, except that the config is
@@ -384,9 +367,6 @@ class TestWatcherHttp(TestWatcherConffile):
         self.lc.check(self.start_thread_log_tuple())
 
         watcher._stop_working_threads(self.tinfo)
-
-
-
 
 
 if __name__ == '__main__':

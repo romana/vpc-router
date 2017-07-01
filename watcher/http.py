@@ -45,6 +45,7 @@ _Q_ROUTE_SPEC = None
 
 logger = logging.getLogger('__root__')
 
+
 def log_to_logger(fn):
     """
     Wrap a Bottle request so that a log line is emitted after it's handled.
@@ -61,6 +62,7 @@ def log_to_logger(fn):
         return actual_response
     return _log_to_logger
 
+
 APP = bottle.Bottle()
 APP.install(log_to_logger)
 
@@ -76,7 +78,8 @@ class MyWSGIRefServer(bottle.ServerAdapter):
         from wsgiref.simple_server import make_server, WSGIRequestHandler
         if self.quiet:
             class QuietHandler(WSGIRequestHandler):
-                def log_request(*args, **kw): pass
+                def log_request(*args, **kw):
+                    pass
             self.options['handler_class'] = QuietHandler
         self.server = make_server(self.host, self.port, handler,
                                   **self.options)
@@ -167,11 +170,10 @@ def start_config_receiver_thread(srv_addr, srv_port, aws_region, vpc_id):
 
     my_server = MyWSGIRefServer(host=srv_addr, port=srv_port)
 
-    http_thread = threading.Thread(target = APP.run,
-                                   name   = "HttpMon",
-                                   kwargs = { "quiet"  : True,
-                                              "server" : my_server
-                                            })
+    http_thread = threading.Thread(
+        target = APP.run,
+        name   = "HttpMon",
+        kwargs = { "quiet"  : True, "server" : my_server })
 
     # Add a stop method to our thread, which then calls our server's stop
     # method.

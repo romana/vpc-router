@@ -16,33 +16,24 @@ limitations under the License.
 """
 
 #
-# Exceptions for the VPC router.
+# Code used by different tests
 #
 
+from logging import Filter
 
-class _Exception(Exception):
+
+class MyLogCaptureFilter(Filter):
     """
-    Base class for my exceptions, which allows me to use the message attribute.
+    Custom capture class for log messages.
 
-    """
-    def __init__(self, message, *args):
-        self.message = message
-        super(_Exception, self).__init__(message, *args)
-
-
-class VpcRouteSetError(_Exception):
-    """
-    Exception during route setting operations.
+    We use log capture in several tests and need a way to get just our messages
+    and discard log messages from 3rd party packages.
 
     """
-    pass
-
-
-class ArgsError(_Exception):
-    """
-    Missing or malformed parameters and arguments.
-
-    """
-    pass
+    def filter(self, record):
+        if record.name != "root":
+            return 0
+        else:
+            return 1
 
 

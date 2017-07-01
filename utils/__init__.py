@@ -23,6 +23,7 @@ import netaddr
 
 from errors import ArgsError
 
+
 def ip_check(ip, netmask_expected=False):
     """
     Sanity check that the specified string is indeed an IP address or mask.

@@ -23,20 +23,13 @@ import boto
 import unittest
 import random
 
-from logging       import Filter
 from moto          import mock_ec2_deprecated
 from testfixtures  import LogCapture
 
 import errors
 import vpc
 
-
-class MyFilter(Filter):
-    def filter(self, record):
-        if record.name != "root":
-            return 0
-        else:
-            return 1
+from . import common
 
 
 class TestVpcUtil(unittest.TestCase):
@@ -46,7 +39,6 @@ class TestVpcUtil(unittest.TestCase):
         # seed the random number generator with a specific value in order to
         # have reproducible tests.
         random.seed(123)
-
 
     def test_host_choices(self):
         #
@@ -77,17 +69,15 @@ class TestVpcBotoInteractions(unittest.TestCase):
     """
     def setUp(self):
         self.lc = LogCapture()
-        self.lc.addFilter(MyFilter())
+        self.lc.addFilter(common.MyLogCaptureFilter())
         self.addCleanup(self.cleanup)
         # Hosts are chosen randomly from a prefix group. Therefore, we need to
         # seed the random number generator with a specific value in order to
         # have reproducible tests.
         random.seed(123)
 
-
     def cleanup(self):
         self.lc.uninstall()
-
 
     @mock_ec2_deprecated
     def make_mock_vpc(self):
@@ -116,7 +106,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.i1ip = self.i1.private_ip_address
         self.i2ip = self.i2.private_ip_address
 
-
     @mock_ec2_deprecated
     def test_connect(self):
         self.make_mock_vpc()
@@ -127,8 +116,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
         self.assertEqual(
-            sorted(['subnets','route_tables','instance_by_id',
-                    'instances','zones','vpc']),
+            sorted([ 'subnets', 'route_tables', 'instance_by_id',
+                     'instances', 'zones', 'vpc']),
             sorted(d.keys()))
 
         self.assertEqual(self.new_vpc.id, d['vpc'].id)
@@ -219,7 +208,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
              "--- did not find route in RT '%s'" %
              (d['route_tables'][0].id)))
 
-
     @mock_ec2_deprecated
     def test_process_route_spec_config(self):
         self.make_mock_vpc()
@@ -295,7 +283,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
              "10.2.0.0/16 -> %s (%s, %s)" %
              (rt_id, self.i1ip, i1.id, eni1.id)))
 
-
     @mock_ec2_deprecated
     def test_handle_spec(self):
         self.make_mock_vpc()
@@ -306,7 +293,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         i, eni = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
         rt_id = d['route_tables'][0].id
-
 
         route_spec = {
                          u"10.2.0.0/16" : [ self.i1ip ]

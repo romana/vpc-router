@@ -47,7 +47,6 @@ class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
 
         super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
 
-
     def on_modified(self, event):
         if type(event) is watchdog.events.FileModifiedEvent and \
                                     event.src_path == self._route_spec_abspath:
@@ -61,7 +60,6 @@ class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
                 # message with a broken or empty list. Probably just temporary,
                 # shouldn't stop operation of the system.
                 logging.warning("Cannot parse route spec: %s" % str(e))
-
 
 
 def read_route_spec_config(fname):

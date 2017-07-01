@@ -32,7 +32,9 @@ import monitor
 # the tests are normally run in a single thread, this should be ok.
 _FAILED_PREFIX = None
 
+
 class TestPing(unittest.TestCase):
+
     def test_sending_receiving_ping(self):
         # Only thing we can really send a ping to that doesn't leak of the host
         # is localhost.
@@ -76,12 +78,11 @@ class TestQueues(unittest.TestCase):
         # local, no real pings). We get back the thread and the two
         # communication queues.
         self.monitor_thread, self.q_monitor_ips, self.q_failed_ips = \
-                    monitor.start_monitor_thread(0.1)
+            monitor.start_monitor_thread(0.1)
 
         # Install the cleanup, which will send the stop signal to the monitor
         # thread once we are done with our test
         self.addCleanup(self.cleanup)
-
 
     def cleanup(self):
         """
@@ -90,7 +91,6 @@ class TestQueues(unittest.TestCase):
         """
         self.q_monitor_ips.put(None)   # send the stop signal
         self.monitor_thread.join()
-
 
     def test_sending_receiving(self):
         #
@@ -101,14 +101,14 @@ class TestQueues(unittest.TestCase):
 
         # List of inputs and expected outputs
         input_output = [
-            ([ "10.0.0.0" ],                        None),     # No failed IPs
-            ([ "11.1.1.1" ],                        [ "11.1.1.1" ]),
-            ([ "11.1.1.2","10.0.0.0" ],             [ "11.1.1.2" ]),
-            ([ "11.1.1.3","11.2.2.3","10.0.0.3" ],  [ "11.1.1.3","11.2.2.3" ]),
-            ([ "11.1.1.4","11.2.2.4","11.3.3.4" ],  [ "11.1.1.4","11.2.2.4",
-                                                      "11.3.3.4" ]),
+            (["10.0.0.0"],                         None),     # No failed IPs
+            (["11.1.1.1"],                         ["11.1.1.1"]),
+            (["11.1.1.2", "10.0.0.0"],             ["11.1.1.2"]),
+            (["11.1.1.3", "11.2.2.3", "10.0.0.3"], ["11.1.1.3", "11.2.2.3"]),
+            (["11.1.1.4", "11.2.2.4", "11.3.3.4"], ["11.1.1.4", "11.2.2.4",
+                                                    "11.3.3.4"]),
             # Now also with some malformed input
-            ([ "333.3.3.5","10.2.2.5","11.3.3.5" ], [ "333.3.3.5","11.3.3.5" ])
+            (["333.3.3.5", "10.2.2.5", "11.3.3.5"], ["333.3.3.5", "11.3.3.5"])
         ]
         for inp, expected_out in input_output:
             self.q_monitor_ips.put(inp)
@@ -116,7 +116,7 @@ class TestQueues(unittest.TestCase):
                 # No message should be received if all hosts in the input
                 # list are healthy.
                 self.assertRaises(Queue.Empty, self.q_failed_ips.get,
-                                  **{"timeout":0.2})
+                                  **{"timeout" : 0.2})
             else:
                 while True:
                     # Read messages until we are at the last one
@@ -127,7 +127,6 @@ class TestQueues(unittest.TestCase):
                 self.q_failed_ips.task_done()
                 self.assertEqual(sorted(res),
                                  sorted(expected_out))
-
 
     def test_multi_send_single_receive(self):
         #
@@ -142,13 +141,12 @@ class TestQueues(unittest.TestCase):
         global _FAILED_PREFIX
         _FAILED_PREFIX = "11."
 
-
         # List of inputs and expected outputs
         input_output = [
-            ([ "10.0.0.0" ],                       None),     # No failed IPs
-            ([ "11.1.1.1" ],                       [ "11.1.1.1" ]),
-            ([ "11.1.1.1","10.0.0.0" ],            [ "11.1.1.1" ]),
-            ([ "11.1.1.1","11.2.2.2","10.0.0.0" ], [ "11.1.1.1","11.2.2.2" ]),
+            (["10.0.0.0"],                       None),     # No failed IPs
+            (["11.1.1.1"],                         ["11.1.1.1"]),
+            (["11.1.1.1", "10.0.0.0"],             ["11.1.1.1"]),
+            (["11.1.1.1", "11.2.2.2", "10.0.0.0"], ["11.1.1.1", "11.2.2.2"]),
         ]
         for inp, expected_out in input_output:
             self.q_monitor_ips.put(inp)
@@ -164,7 +162,6 @@ class TestQueues(unittest.TestCase):
         res = self.q_failed_ips.get(timeout=1.5)
         res = self.q_failed_ips.get(timeout=1.5)
 
-
     def test_monitor_state_change(self):
         #
         # We establish the monitor, then change the result for an IP after a
@@ -178,7 +175,7 @@ class TestQueues(unittest.TestCase):
 
         # There shouldn't be any messages: No failed IPs
         self.assertRaises(Queue.Empty, self.q_failed_ips.get,
-                          **{"timeout":0.5})
+                          **{"timeout" : 0.5})
 
         # Overwrite the monkey patch for the ping function with something new:
         # Indicate an error for addresses starting with "12."
@@ -194,7 +191,7 @@ class TestQueues(unittest.TestCase):
         res = self.q_failed_ips.get(timeout=2)
         self.assertEqual([ "12.0.0.0" ], res)
 
-        time.sleep(1.5) # wait and let monitor send a few more messages for 12
+        time.sleep(1.5)  # wait and let monitor send a few more messages for 12
 
         # Now switching again...
         _FAILED_PREFIX = "13."
