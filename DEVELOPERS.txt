@@ -22,3 +22,10 @@ To just run specific tests, use (for example):
 
 All unit tests are contained in the `tests/` directory.
 
+
+Use the `style_test.sh` script to check for some common pep8 conditions and
+code complexity.
+
+    $ ./style_test.sh
+
+
