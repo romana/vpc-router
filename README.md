@@ -1,10 +1,13 @@
 # vpc-router
 
+vpc-router implements automatic route failover and backup routes, which AWS VPC
+does not provide natively.
+
 vpc-router lets users avoid route table limitations and build large Kubernetes
 clusters with the performance and visibility of native VPC networking.
 
-vpc-router implements automatic route failover and backup routes, which AWS VPC
-does not provide natively.
+It can also ne used independently of Kubernetes whenever you need to manage
+routes, backup routes and route failover in VPC environments.
 
 ## Introduction
 
