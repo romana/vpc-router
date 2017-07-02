@@ -74,7 +74,7 @@ def get_vpc_overview(con, vpc_id, region_name):
                                    "in region '%s'." % (vpc_id, region_name))
     d['vpc'] = vpc
 
-    vpc_filter = { "vpc-id" : vpc_id }  # Will use this filter expression a lot
+    vpc_filter = {"vpc-id" : vpc_id}  # Will use this filter expression a lot
 
     # Now find the subnets, route tables and instances within this VPC
     d['subnets']      = con.get_all_subnets(filters=vpc_filter)
@@ -204,7 +204,7 @@ def manage_route_for_cli(con, vpc_info, cmd, ip, cidr):
                 break
 
         if not found_in_rt:
-            if cmd in [ 'show', 'del' ]:
+            if cmd in ['show', 'del']:
                 logging.info("--- did not find route in RT '%s'" % rt.id)
                 found = False
             elif cmd == "add":
@@ -303,8 +303,8 @@ def _check_or_update_route(dcidr, current_instance, current_eni,
                         instance_id            = new_instance.id,
                         interface_id           = new_eni.id)
             common.CURRENT_STATE['routes'][dcidr] = \
-                        ( new_addr, str(new_instance.id),
-                          str(new_eni.id) )
+                        (new_addr, str(new_instance.id),
+                         str(new_eni.id))
 
         except VpcRouteSetError as e:
             logging.error("*** failed to update route in RT '%s' "
@@ -336,7 +336,7 @@ def _add_new_route(hosts, failed_ips, vpc_info, con,
                          instance_id            = instance.id,
                          interface_id           = eni.id)
         common.CURRENT_STATE['routes'][dcidr] = \
-                    ( new_addr, str(instance.id), str(eni.id) )
+                    (new_addr, str(instance.id), str(eni.id))
     except VpcRouteSetError as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
@@ -391,7 +391,7 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
                 logging.info("--- route not in spec, deleting in RT '%s': "
                              "%s -> ... (%s, %s)" %
                              (rt.id, dcidr, instance.id,
-                              eni.id if eni else "(unknown)" ))
+                              eni.id if eni else "(unknown)"))
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
                 if dcidr in common.CURRENT_STATE['routes']:
@@ -457,4 +457,3 @@ def handle_cli_request(region_name, vpc_id, cmd, router_ip, dst_cidr):
 
     except boto.exception.NoAuthHandlerFound:
         raise VpcRouteSetError("AWS API: vpc-router could not authenticate")
-

@@ -108,8 +108,8 @@ class TestRouteSpec(unittest.TestCase):
         test_specs = [
             {
                 "inp" : {
-                            "10.1.0.0/16" : [ "1.1.1.1", "2.2.2.2" ],
-                            "10.2.0.0/16" : [ "3.3.3.3" ]
+                            "10.1.0.0/16" : ["1.1.1.1", "2.2.2.2"],
+                            "10.2.0.0/16" : ["3.3.3.3"]
                         },
                 "res" : "IDENT"
             },
@@ -123,7 +123,7 @@ class TestRouteSpec(unittest.TestCase):
             {
                 # malformed IP in list
                 "inp" : {
-                            "10.1.0.0/16" : [ "1.1.1.", "2.2.2.2" ],
+                            "10.1.0.0/16" : ["1.1.1.", "2.2.2.2"],
                         },
                 "res" : None
             },
@@ -258,8 +258,8 @@ class TestWatcherConffile(unittest.TestCase):
         self.lc.clear()
 
         inp = {
-                  u"10.1.0.0/16" : [ u"1.1.1.1", u"2.2.2.2" ],
-                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+                  u"10.1.0.0/16" : [u"1.1.1.1", u"2.2.2.2"],
+                  u"10.2.0.0/16" : [u"3.3.3.3"]
               }
         self.write_config(inp)
 
@@ -284,8 +284,8 @@ class TestWatcherConffile(unittest.TestCase):
         self.lc.clear()
 
         inp = {
-                  u"10.1.0.0/16" : [ u"4.4.4.4", u"2.2.2.2" ],
-                  u"10.2.0.0/16" : [ u"3.3.3.3" ]
+                  u"10.1.0.0/16" : [u"4.4.4.4", u"2.2.2.2"],
+                  u"10.2.0.0/16" : [u"3.3.3.3"]
               }
         self.write_config(inp)
 

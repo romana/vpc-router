@@ -111,8 +111,8 @@ def handle_status_request():
     """
     bottle.response.status        = 200
     bottle.response.content_type = 'application/json'
-    return json.dumps({ "time" : time.time(),
-                        "state" : common.CURRENT_STATE })
+    return json.dumps({"time" : time.time(),
+                       "state" : common.CURRENT_STATE})
 
 
 @APP.route('/route_spec', method='GET')
@@ -173,7 +173,7 @@ def start_config_receiver_thread(srv_addr, srv_port, aws_region, vpc_id):
     http_thread = threading.Thread(
         target = APP.run,
         name   = "HttpMon",
-        kwargs = { "quiet"  : True, "server" : my_server })
+        kwargs = {"quiet"  : True, "server" : my_server})
 
     # Add a stop method to our thread, which then calls our server's stop
     # method.
@@ -186,5 +186,3 @@ def start_config_receiver_thread(srv_addr, srv_port, aws_region, vpc_id):
 
     # Return the thread and the two queues to the caller
     return (http_thread, _Q_ROUTE_SPEC)
-
-

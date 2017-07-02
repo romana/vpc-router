@@ -113,7 +113,7 @@ def _check_cli_mode_conf(conf):
     Sanity check for options needed for CLI mode.
 
     """
-    if conf['command'] not in [ 'add', 'del', 'show' ]:
+    if conf['command'] not in ['add', 'del', 'show']:
         raise ArgsError("Only commands 'add', 'del' or 'show' are "
                         "allowed (not '%s')." % conf['command'])
     if not conf['dst_cidr']:
@@ -227,4 +227,3 @@ if __name__ == "__main__":
     except VpcRouteSetError as e:
         logging.error(e.message)
     sys.exit(1)
-

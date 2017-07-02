@@ -46,14 +46,14 @@ class TestVpcUtil(unittest.TestCase):
         # can find available hosts, or indicate error as needed.
         #
         in_out = [
-            [ ( [], [] ),                     None, 0],
-            [ ( [ "A" ], [] ),                "A",  0],
-            [ ( [ "A", "B" ], [ "A" ] ),      "B",  0],
-            [ ( [ "A", "B" ], [ "C" ] ),      "A",  0],  # known random choice
-            [ ( [ "A", "B" ], [ "A", "B" ] ), None, 0],
-            [ ( [ "A", "B" ], [ "B" ] ),      "A",  None],
-            [ ( [ "A", "B" ], [ "A" ] ),      "B",  None],
-            [ ( [ "A", "B" ], [ "A", "B" ] ), None, None],
+            [([], []),                 None, 0],
+            [(["A"], []),              "A",  0],
+            [(["A", "B"], ["A"]),      "B",  0],
+            [(["A", "B"], ["C"]),      "A",  0],  # known random choice
+            [(["A", "B"], ["A", "B"]), None, 0],
+            [(["A", "B"], ["B"]),      "A",  None],
+            [(["A", "B"], ["A"]),      "B",  None],
+            [(["A", "B"], ["A", "B"]), None, None],
         ]
         for args, expected_out, first_pos in in_out:
             self.assertEqual(
@@ -116,13 +116,13 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
         self.assertEqual(
-            sorted([ 'subnets', 'route_tables', 'instance_by_id',
-                     'instances', 'zones', 'vpc']),
+            sorted(['subnets', 'route_tables', 'instance_by_id',
+                    'instances', 'zones', 'vpc']),
             sorted(d.keys()))
 
         self.assertEqual(self.new_vpc.id, d['vpc'].id)
-        self.assertTrue(self.new_subnet_a.id in [ s.id for s in d['subnets']])
-        self.assertTrue(self.new_subnet_b.id in [ s.id for s in d['subnets']])
+        self.assertTrue(self.new_subnet_a.id in [s.id for s in d['subnets']])
+        self.assertTrue(self.new_subnet_b.id in [s.id for s in d['subnets']])
         self.assertTrue(len(d['zones']) == 3)
         self.assertTrue(len(d['route_tables']) == 1)
         self.assertTrue(len(d['instance_by_id'].keys()) == 2)
@@ -152,7 +152,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'DEBUG', "Adding route: 10.55.0.0/16"),
             ('root', 'INFO',
              "--- adding route in RT '%s' 10.55.0.0/16 -> %s (%s, %s)" %
-             (d['route_tables'][0].id, self.i1ip, self.i1.id, eni.id )))
+             (d['route_tables'][0].id, self.i1ip, self.i1.id, eni.id)))
 
         # Adding the route again should give us a message that the route exists
         # already. Because moto doesn't seem to store the eni with the route
@@ -222,7 +222,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         rt_id = d['route_tables'][0].id
 
         route_spec = {
-                         u"10.1.0.0/16" : [ self.i1ip, self.i2ip ],
+                         u"10.1.0.0/16" : [self.i1ip, self.i2ip]
                      }
 
         # Process a simple route spec, a route should have been added
@@ -241,7 +241,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # One of the two IPs failed, switch over
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.process_route_spec_config(con, d, route_spec, [ self.i1ip ])
+        vpc.process_route_spec_config(con, d, route_spec, [self.i1ip])
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s' % self.i1ip),
@@ -255,7 +255,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec,
-                                      [ self.i1ip, self.i2ip ])
+                                      [self.i1ip, self.i2ip])
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s,%s' %
@@ -266,7 +266,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # Add new route, remove old one
         route_spec = {
-                         u"10.2.0.0/16" : [ self.i1ip ]
+                         u"10.2.0.0/16" : [self.i1ip]
                      }
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
@@ -295,7 +295,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         rt_id = d['route_tables'][0].id
 
         route_spec = {
-                         u"10.2.0.0/16" : [ self.i1ip ]
+                         u"10.2.0.0/16" : [self.i1ip]
                      }
 
         # Test handle_spec

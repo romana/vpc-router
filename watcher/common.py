@@ -65,4 +65,3 @@ def parse_route_spec_config(data):
         raise ValueError(e.message)
 
     return data
-

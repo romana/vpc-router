@@ -134,4 +134,3 @@ def start_config_change_detection_thread(fname, region_name, vpc_id):
     observer_thread.start()
 
     return observer_thread, q_route_spec
-

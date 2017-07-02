@@ -41,5 +41,3 @@ def ip_check(ip, netmask_expected=False):
             raise ArgsError("Not a valid CIDR (%s)" % ip)
         else:
             raise ArgsError("Not a valid IP address (%s)" % ip)
-
-

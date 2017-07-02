@@ -244,5 +244,3 @@ def start_watcher(conf, iterations=None, sleep_time=1):
 
     # Stopping and collecting all worker threads when we are done
     _stop_working_threads(tinfo)
-
-

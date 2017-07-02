@@ -143,7 +143,7 @@ def _do_health_checks(list_of_ips):
         thread.join()
 
     # ... and gather up the results and send back if needed
-    return [ k for (k, v) in results.items() if v is None ]
+    return [k for (k, v) in results.items() if v is None]
 
 
 def start_monitoring(q_monitor_ips, q_failed_ips, interval=2):
@@ -247,5 +247,3 @@ def start_monitor_thread(interval=2):
 
     # Return the thread and the two queues to the caller
     return (monitor_thread, q_monitor_ips, q_failed_ips)
-
-

@@ -143,7 +143,7 @@ class TestQueues(unittest.TestCase):
 
         # List of inputs and expected outputs
         input_output = [
-            (["10.0.0.0"],                       None),     # No failed IPs
+            (["10.0.0.0"],                         None),     # No failed IPs
             (["11.1.1.1"],                         ["11.1.1.1"]),
             (["11.1.1.1", "10.0.0.0"],             ["11.1.1.1"]),
             (["11.1.1.1", "11.2.2.2", "10.0.0.0"], ["11.1.1.1", "11.2.2.2"]),
@@ -171,7 +171,7 @@ class TestQueues(unittest.TestCase):
         _FAILED_PREFIX = "11."
 
         # Three IP addresses, none of them should be considered failed
-        self.q_monitor_ips.put([ "10.0.0.0", "12.0.0.0", "13.0.0.0" ])
+        self.q_monitor_ips.put(["10.0.0.0", "12.0.0.0", "13.0.0.0"])
 
         # There shouldn't be any messages: No failed IPs
         self.assertRaises(Queue.Empty, self.q_failed_ips.get,
@@ -183,13 +183,13 @@ class TestQueues(unittest.TestCase):
 
         # Now after a little while we should receive a message for a failed IP.
         res = self.q_failed_ips.get(timeout=2)
-        self.assertEqual([ "12.0.0.0" ], res)
+        self.assertEqual(["12.0.0.0"], res)
 
         # We should continue to get notifications about that failed IP...
         res = self.q_failed_ips.get(timeout=2)
-        self.assertEqual([ "12.0.0.0" ], res)
+        self.assertEqual(["12.0.0.0"], res)
         res = self.q_failed_ips.get(timeout=2)
-        self.assertEqual([ "12.0.0.0" ], res)
+        self.assertEqual(["12.0.0.0"], res)
 
         time.sleep(1.5)  # wait and let monitor send a few more messages for 12
 
@@ -209,7 +209,7 @@ class TestQueues(unittest.TestCase):
                 seen_12 = True
             else:
                 # Now we could get a message for 13. at any moment.
-                self.assertTrue(res[0] in [ "12.0.0.0", "13.0.0.0" ])
+                self.assertTrue(res[0] in ["12.0.0.0", "13.0.0.0"])
                 if res[0] == "13.0.0.0":
                     # Finally received a message about 13. Done.
                     break
@@ -217,4 +217,3 @@ class TestQueues(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
