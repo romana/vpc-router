@@ -45,9 +45,9 @@ def _setup_arg_parser():
                         help="the AWS region of the VPC")
     parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
                         help="the ID of the VPC in which to operate")
-    parser.add_argument('-m', '--mode', dest='mode', default='cli',
-                        help="either 'cli', 'conffile' or 'http' "
-                             "(default: cli)")
+    parser.add_argument('-m', '--mode', dest='mode', default='http',
+                        help="either 'conffile' or 'http' "
+                             "(default: http)")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
@@ -66,16 +66,6 @@ def _setup_arg_parser():
                         help="port to listen on for commands "
                              "(only in http mode, default: 33289)")
 
-    # Arguments for the CLI mode
-    parser.add_argument('-c', '--cmd', dest="command",
-                        help="either 'show', 'add' or 'del' "
-                             "(only in CLI mode, default: show)")
-    parser.add_argument('-C', '--CIDR', dest="dst_cidr",
-                        help="the destination CIDR of the route "
-                             "(only in CLI mode)")
-    parser.add_argument('-i', '--ip', dest="router_ip",
-                        help="IP address of router instance "
-                             "(only in CLI more for 'add' command)")
     return parser
 
 
@@ -108,29 +98,6 @@ def _check_conffile_mode_conf(conf):
                         (conf['file'], e))
 
 
-def _check_cli_mode_conf(conf):
-    """
-    Sanity check for options needed for CLI mode.
-
-    """
-    if conf['command'] not in ['add', 'del', 'show']:
-        raise ArgsError("Only commands 'add', 'del' or 'show' are "
-                        "allowed (not '%s')." % conf['command'])
-    if not conf['dst_cidr']:
-        raise ArgsError("Destination CIDR argument missing.")
-    if conf['command'] == 'add':
-        if not conf['router_ip']:
-            raise ArgsError("Router IP address argument missing.")
-    else:
-        if conf['router_ip']:
-            raise ArgsError("Router IP address only allowed for "
-                            "'add'.")
-
-    utils.ip_check(conf['dst_cidr'], netmask_expected=True)
-    if conf['router_ip']:
-        utils.ip_check(conf['router_ip'])
-
-
 def parse_args():
     """
     Parse command line arguments and return relevant values in a dict.
@@ -146,8 +113,6 @@ def parse_args():
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
     conf['command']     = args.command
-    conf['dst_cidr']    = args.dst_cidr
-    conf['router_ip']   = args.router_ip
     conf['mode']        = args.mode
     conf['file']        = args.conf_file
     conf['port']        = args.listen_port
@@ -161,8 +126,6 @@ def parse_args():
             _check_http_mode_conf(conf)
         elif conf['mode'] == 'conffile':
             _check_conffile_mode_conf(conf)
-        elif conf['mode'] == 'cli':
-            _check_cli_mode_conf(conf)
         else:
             raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
 
@@ -184,14 +147,10 @@ def setup_logging(conf):
         level = logging.DEBUG
     else:
         level = logging.INFO
-    if conf['mode'] == "cli":
-        # Just to stdout
-        logging.basicConfig(level=level, format=None)
-    else:
-        logging.basicConfig(filename=conf['logfile'], level=level,
-                            format='%(asctime)s - %(levelname)-8s - '
-                                   '%(threadName)-11s - %(message)s')
 
+    logging.basicConfig(filename=conf['logfile'], level=level,
+                        format='%(asctime)s - %(levelname)-8s - '
+                               '%(threadName)-11s - %(message)s')
     # Don't want to see all the debug messages from BOTO and watchdog
     logging.getLogger('boto').setLevel(logging.INFO)
     logging.getLogger('watchdog.observers.inotify_buffer'). \
@@ -203,27 +162,15 @@ def setup_logging(conf):
 #
 if __name__ == "__main__":
     try:
-        # Parse command line
         conf = parse_args()
-
-        # Setup logging
         setup_logging(conf)
-
-        if conf['mode'] != "cli":
-            logging.info("*** Starting vpc-router in %s mode ***" %
-                         conf['mode'])
-            watcher.start_watcher(conf)
-        else:
-            # One off run from the command line
-            found = vpc.handle_cli_request(
-                conf['region_name'], conf['vpc_id'], conf['command'],
-                conf['router_ip'], conf['dst_cidr'])
-            if found:
-                sys.exit(0)
-            else:
-                sys.exit(1)
-    except ArgsError as e:
+    except Exception as e:
         print "\n*** Error: %s\n" % e.message
-    except VpcRouteSetError as e:
+
+    try:
+        logging.info("*** Starting vpc-router in %s mode ***" % conf['mode'])
+        watcher.start_watcher(conf)
+    except Exception as e:
         logging.error(e.message)
+
     sys.exit(1)
