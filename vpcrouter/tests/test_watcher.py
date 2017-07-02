@@ -215,8 +215,8 @@ class TestWatcherConffile(unittest.TestCase):
     def test_watcher_thread_no_config(self):
         os.remove(self.abs_fname)
         self.tinfo = watcher._start_working_threads(self.conf, 2)
-
         time.sleep(0.5)
+
         # Config file doesn't exist yet, so we should get an error.
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
@@ -231,19 +231,18 @@ class TestWatcherConffile(unittest.TestCase):
 
     def test_watcher_thread_wrong_config(self):
         self.tinfo = watcher._start_working_threads(self.conf, 2)
+        time.sleep(1.2)
 
         inp = "MALFORMED"
+        self.lc.clear()
         self.write_config(inp)
 
-        time.sleep(2)
+        time.sleep(1.5)
         # Config file malformed
         self.lc.check(
-            self.start_thread_log_tuple(),
             self.change_event_log_tuple(),
             ('root', 'ERROR',
-             'Config ignored: Expected dictionary at top level'),
-            ('root', 'DEBUG', 'Started health monitoring thread'),
-            ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
+             'Config ignored: Expected dictionary at top level'))
 
         watcher._stop_working_threads(self.tinfo)
 
@@ -359,8 +358,8 @@ class TestWatcherHttp(TestWatcherConffile):
 
     def test_watcher_thread_no_config(self):
         self.tinfo = watcher._start_working_threads(self.conf, 2)
-
         time.sleep(0.5)
+
         # Config file doesn't exist yet, so we should get an error.
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
