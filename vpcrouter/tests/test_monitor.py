@@ -24,7 +24,7 @@ import socket
 import Queue
 import time
 
-import monitor
+from vpcrouter import monitor
 
 
 # This variable determines what IP addresses are considered 'failed' when we

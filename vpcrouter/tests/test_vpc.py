@@ -26,8 +26,7 @@ import random
 from moto          import mock_ec2_deprecated
 from testfixtures  import LogCapture
 
-import errors
-import vpc
+from vpcrouter import vpc
 
 from . import common
 

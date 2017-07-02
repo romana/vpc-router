@@ -31,9 +31,9 @@ import unittest
 from testfixtures       import LogCapture
 from watchdog.observers import Observer
 
-import monitor
-import watcher
-import vpc
+from vpcrouter import monitor
+from vpcrouter import watcher
+from vpcrouter import vpc
 
 from . import common
 

@@ -21,8 +21,8 @@ limitations under the License.
 
 import unittest
 
-from utils  import ip_check
-from errors import ArgsError
+from vpcrouter.utils  import ip_check
+from vpcrouter.errors import ArgsError
 
 
 class TestIpCheck(unittest.TestCase):
