@@ -19,116 +19,88 @@ limitations under the License.
 # arguments.
 
 import argparse
+import importlib
 import logging
+import pkgutil
 import sys
 
-from vpcrouter.errors  import ArgsError
+from vpcrouter.errors  import ArgsError, PluginError
 
-from vpcrouter import utils
-from vpcrouter import watcher
+from vpcrouter         import utils
+from vpcrouter         import watcher
+from vpcrouter.watcher import plugins
 
 
-def _setup_arg_parser():
+def _setup_arg_parser(plugins_class_lookup=None):
     """
     Configure and return the argument parser for the command line options.
 
+    If plugins_class_lookup is provided then call the add_arguments() call back
+    of the plugin classes in that dict, in order to add plugin specific
+    options.
+
+    Return parser and the conf-name of all the arguments that have been added.
+
     """
+    mode_names = ", ".join("'%s'" % pn for pn in plugins_class_lookup.keys())
     parser = argparse.ArgumentParser(
-        description="VPC router: Manage routes in VPC route table")
+                    description="VPC router: Manage routes in VPC route table")
     # General arguments
     parser.add_argument('-l', '--logfile', dest='logfile',
                         default='/tmp/vpc-router.log',
                         help="full path name for the logfile "
                              "(default: /tmp/vpc-router.log"),
-    parser.add_argument('-r', '--region', dest="region",
+    parser.add_argument('-r', '--region', dest="region_name",
                         default="ap-southeast-2",
                         help="the AWS region of the VPC")
     parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
                         help="the ID of the VPC in which to operate")
-    parser.add_argument('-m', '--mode', dest='mode', default='http',
-                        help="either 'conffile' or 'http' "
-                             "(default: http)")
+    parser.add_argument('-m', '--mode', dest='mode', required=True,
+                        help="available modes: %s" % mode_names)
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
-    # Arguments for the conffile mode
-    parser.add_argument('-f', '--file', dest='conf_file',
-                        help="config file for routing groups "
-                             "(only in conffile mode)"),
+    arglist = ["logfile", "region_name", "vpc_id", "mode", "verbose"]
 
-    # Arguments for the http mode
-    parser.add_argument('-a', '--address', dest="listen_addr",
-                        default="localhost",
-                        help="address to listen on for commands "
-                             "(only in http mode, default: localhost)")
-    parser.add_argument('-p', '--port', dest="listen_port", default="33289",
-                        type=int,
-                        help="port to listen on for commands "
-                             "(only in http mode, default: 33289)")
+    # Let each watcher plugin add its own arguments
+    if plugins_class_lookup:
+        for plugin_class in plugins_class_lookup.values():
+            arglist.extend(plugin_class.add_arguments(parser))
 
-    return parser
+    return parser, arglist
 
 
-def _check_http_mode_conf(conf):
-    """
-    Sanity checks for options needed for http mode.
-
-    """
-    if not 0 < conf['port'] < 65535:
-        raise ArgsError("Invalid listen port '%d' for http mode." %
-                        conf['port'])
-    if not conf['addr'] == "localhost":
-        # maybe a proper address was specified?
-        utils.ip_check(conf['addr'])
-
-
-def _check_conffile_mode_conf(conf):
-    """
-    Sanity checks for options needed for conffile mode.
-
-    """
-    if not conf['file']:
-        raise ArgsError("A config file needs to be specified (-f).")
-    try:
-        # Check we have access to the config file
-        f = open(conf['file'], "r")
-        f.close()
-    except IOError as e:
-        raise ArgsError("Cannot open config file '%s': %s" %
-                        (conf['file'], e))
-
-
-def parse_args(args_list):
+def parse_args(args_list, plugins_class_lookup=None):
     """
     Parse command line arguments and return relevant values in a dict.
 
     Also perform basic sanity checking on some arguments.
 
+    If a dict of watcher plugin classes has been parsed in, callbacks into
+    those classes will be used to extend the arguments with plugin-specific
+    options.
+
+    Likewise, the sanity checking will then also invoke a callback into the
+    plugin, chosen by the -m (mode) option, in order to perform a sanity check
+    on the plugin options.
+
     """
     conf = {}
     # Setting up the command line argument parser
-    parser = _setup_arg_parser()
+    parser, arglist = _setup_arg_parser(plugins_class_lookup)
 
     args = parser.parse_args(args_list)
 
-    conf['vpc_id']      = args.vpc_id
-    conf['region_name'] = args.region
-    conf['mode']        = args.mode
-    conf['file']        = args.conf_file
-    conf['port']        = args.listen_port
-    conf['addr']        = args.listen_addr
-    conf['logfile']     = args.logfile
-    conf['verbose']     = args.verbose
+    for argname in arglist:
+        conf[argname] = getattr(args, argname)
 
     # Sanity checking of arguments.
+    plugin_class = plugins_class_lookup.get(conf['mode'])
+    if not plugin_class:
+        raise ArgsError("Unknown mode '%s'" % conf['mode'])
     try:
-        if conf['mode'] == 'http':
-            _check_http_mode_conf(conf)
-        elif conf['mode'] == 'conffile':
-            _check_conffile_mode_conf(conf)
-        else:
-            raise ArgsError("Invalid operating mode '%s'." % conf['mode'])
-
+        # Let the watcher plugin class check its own arguments
+        plugin_class.check_arguments(conf)
     except ArgsError as e:
         parser.print_help()
         raise e
@@ -162,16 +134,47 @@ def main():
     Starting point of the executable.
 
     """
+    # Importing all watcher plugins.
+    # - Each plugin is located in the vpcrouter.watcher.plugins module.
+    # - The name of the plugin file is the 'mode' of vpc-router, plus '.py'
+    # - The file has to contain a class that implements the WatcherPlugin
+    #   interface.
+    # - The plugin class has to have the same name as the plugin itself, only
+    #   capitalized.
     try:
-        conf = parse_args(sys.argv[1:])
+        plugins_class_lookup = {}
+        # Iterate over all the plugin modules we can find.
+        for _, modname, ispkg in pkgutil.iter_modules(plugins.__path__):
+            try:
+                plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % modname
+                plugin_mod        = importlib.import_module(plugin_mod_name)
+                plugin_class_name = modname.capitalize()
+                plugin_class      = getattr(plugin_mod, plugin_class_name)
+            except ImportError as e:
+                raise PluginError("Cannot load '%s'" % plugin_mod_name)
+            except AttributeError:
+                raise PluginError("Cannot find plugin class '%s' in "
+                                  "plugin '%s'" %
+                                  (plugin_class_name, plugin_mod_name))
+            except Exception as e:
+                raise PluginError("Error while loading plugin '%s': %s" %
+                                  plugin_mod_name, str(e))
+
+            plugins_class_lookup[modname] = plugin_class
+
+        conf = parse_args(sys.argv[1:], plugins_class_lookup)
         setup_logging(conf)
+        try:
+            logging.info("*** Starting vpc-router in %s mode ***" %
+                         conf['mode'])
+            watcher.start_watcher(conf)
+            logging.info("*** Stopping vpc-router ***")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logging.error(e.message)
+            logging.error("*** Exiting")
     except Exception as e:
         print "\n*** Error: %s\n" % e.message
-
-    try:
-        logging.info("*** Starting vpc-router in %s mode ***" % conf['mode'])
-        watcher.start_watcher(conf)
-    except Exception as e:
-        logging.error(e.message)
 
     sys.exit(1)

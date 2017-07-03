@@ -33,6 +33,32 @@ CURRENT_STATE = {
 }
 
 
+class WatcherPlugin(object):
+    """
+    Base class for all watcher plugins.
+
+    """
+    def __init__(self, conf):
+        self.conf = conf
+
+    def start(self):
+        raise NotImplementedError()
+
+    def stop(self):
+        raise NotImplementedError()
+
+    def get_route_spec_queue(self):
+        raise NotImplementedError()
+
+    @classmethod
+    def add_arguments(cls, parser):
+        raise NotImplementedError()
+
+    @classmethod
+    def check_arguments(cls, conf):
+        raise NotImplementedError()
+
+
 def parse_route_spec_config(data):
     """
     Parse and sanity check the route spec config.

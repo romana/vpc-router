@@ -16,7 +16,8 @@ limitations under the License.
 """
 
 #
-# Functions for HTTP request handling
+# HTTP plugin: Get route specs via HTTP interface.
+# Starts a small Bottle app for this purpose.
 #
 
 import bottle
@@ -28,10 +29,14 @@ import time
 
 from functools import wraps
 
-from . import common
+from vpcrouter         import utils
+from vpcrouter.errors  import ArgsError
+from vpcrouter.watcher import common
 
 
-# Need the queue available inside of the request handler functions.
+# Need the queue available inside of the request handler functions. There
+# doesn't seem to be a decent way to pass additional parameters to the Bottle
+# request handlers, so we made this one global.
 _Q_ROUTE_SPEC = None
 
 
@@ -155,34 +160,70 @@ def handle_route_spec_request():
         msg = "Internal server error"
 
     bottle.response.content_type = 'application/json'
+
     return msg
 
 
-def start_config_receiver_thread(srv_addr, srv_port, aws_region, vpc_id):
+class Http(common.WatcherPlugin):
     """
-    Listen on an HTTP server port for new route specs.
+    Implements the WatcherPlugin interface for the 'http' plugin.
+
+    Start a Bottle application thread, which serves a minimal HTTP interface
+    to set route specs or enquire about the status.
 
     """
-    global _Q_ROUTE_SPEC
-    _Q_ROUTE_SPEC = Queue.Queue()
-    logging.info("Starting to watch for route spec on '%s:%s'..." %
-                 (srv_addr, srv_port))
+    def start(self):
+        global _Q_ROUTE_SPEC
+        _Q_ROUTE_SPEC = Queue.Queue()
 
-    my_server = MyWSGIRefServer(host=srv_addr, port=srv_port)
+        logging.info("HTTP watcher plugin: "
+                     "Starting to watch for route spec on '%s:%s'..." %
+                     (self.conf['addr'], self.conf['port']))
 
-    http_thread = threading.Thread(
-        target = APP.run,
-        name   = "HttpMon",
-        kwargs = {"quiet"  : True, "server" : my_server})
+        self.my_server = MyWSGIRefServer(host=self.conf['addr'],
+                                         port=self.conf['port'])
 
-    # Add a stop method to our thread, which then calls our server's stop
-    # method.
-    def stop_server(*args, **kwargs):
-        my_server.stop()
-    http_thread.stop = stop_server
+        self.http_thread = threading.Thread(
+                    target = APP.run,
+                    name   = "HttpMon",
+                    kwargs = {"quiet" : True, "server" : self.my_server})
 
-    http_thread.daemon = True
-    http_thread.start()
+        self.http_thread.daemon = True
+        self.http_thread.start()
 
-    # Return the thread and the two queues to the caller
-    return (http_thread, _Q_ROUTE_SPEC)
+        # Return the thread and the two queues to the caller
+        return _Q_ROUTE_SPEC
+
+    def stop(self):
+        self.my_server.stop()
+        self.http_thread.join()
+        logging.info("HTTP watcher plugin: Stopped")
+
+    def get_route_spec_queue(self):
+        return _Q_ROUTE_SPEC
+
+    @classmethod
+    def add_arguments(cls, parser):
+        # Arguments for the http mode
+        parser.add_argument('-a', '--address', dest="addr",
+                            default="localhost",
+                            help="address to listen on for commands "
+                                 "(only in http mode, default: localhost)")
+        parser.add_argument('-p', '--port', dest="port",
+                            default="33289", type=int,
+                            help="port to listen on for commands "
+                                 "(only in http mode, default: 33289)")
+        return [ "addr", "port" ]
+
+    @classmethod
+    def check_arguments(cls, conf):
+        """
+        Sanity check options needed for http mode.
+
+        """
+        if not 0 < conf['port'] < 65535:
+            raise ArgsError("Invalid listen port '%d' for http mode." %
+                            conf['port'])
+        if not conf['addr'] == "localhost":
+            # Check if a proper address was specified
+            utils.ip_check(conf['addr'])

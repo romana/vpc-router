@@ -27,7 +27,8 @@ import Queue
 import watchdog.events
 import watchdog.observers
 
-from . import common
+from vpcrouter.errors  import ArgsError
+from vpcrouter.watcher import common
 
 
 class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
@@ -134,3 +135,36 @@ def start_config_change_detection_thread(fname, region_name, vpc_id):
     observer_thread.start()
 
     return observer_thread, q_route_spec
+
+
+class Configfile(common.WatcherPlugin):
+    """
+    Implements the WatcherPlugin interface for the 'http' plugin.
+
+    Start a Bottle application thread, which serves a minimal HTTP interface
+    to set route specs or enquire about the status.
+
+    """
+    @classmethod
+    def add_arguments(cls, parser):
+        # Arguments for the conffile mode
+        parser.add_argument('-f', '--file', dest='file',
+                            help="config file for routing groups "
+                                 "(only in conffile mode)"),
+        return [ "file" ]
+
+    @classmethod
+    def check_arguments(cls, conf):
+        """
+        Sanity checks for options needed for conffile mode.
+
+        """
+        if not conf['file']:
+            raise ArgsError("A config file needs to be specified (-f).")
+        try:
+            # Check we have access to the config file
+            f = open(conf['file'], "r")
+            f.close()
+        except IOError as e:
+            raise ArgsError("Cannot open config file '%s': %s" %
+                            (conf['file'], e))

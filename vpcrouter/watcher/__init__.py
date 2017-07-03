@@ -19,6 +19,7 @@ limitations under the License.
 # Functions for watching route spec in daemon mode
 #
 
+import importlib
 import itertools
 import logging
 import Queue
@@ -26,9 +27,8 @@ import time
 
 from vpcrouter import monitor
 from vpcrouter import vpc
+from vpcrouter import errors
 
-from . import configfile
-from . import http
 from . import common
 
 
@@ -170,26 +170,35 @@ def _start_working_threads(conf, sleep_time):
     monitor_thread, q_monitor_ips, q_failed_ips = \
                         monitor.start_monitor_thread(sleep_time)
 
-    # No matter what the chosen mode of watching for config updates: We get a
-    # queue and a thread-handle back.
-    if conf['mode'] == "conffile":
-        # Start the config change monitoring thread
-        observer_thread, q_route_spec =  \
-            configfile.start_config_change_detection_thread(
-                conf['file'], conf['region_name'], conf['vpc_id'])
-    elif conf['mode'] == "http":
-        # Start the http server to listen for route spec updates
-        observer_thread, q_route_spec = \
-            http.start_config_receiver_thread(
-                conf['addr'], conf['port'],
-                conf['region_name'], conf['vpc_id'])
+    # Loading the watcher plugin
+    plugin_name       = conf['mode']
+    plugin_class_name = plugin_name.capitalize()
+    full_plugin_name  = "vpcrouter.watcher.plugins.%s" % plugin_name
+    try:
+        plugin_module = importlib.import_module(full_plugin_name)
+        plugin_class  = getattr(plugin_module, plugin_class_name)
+    except ImportError as e:
+        raise errors.PluginError("Cannot load '%s'" % plugin_name)
+    except AttributeError:
+        raise errors.PluginError("Cannot find plugin class '%s' in "
+                                 "plugin '%s'" %
+                                 (plugin_class_name, plugin_name))
+    except Exception as e:
+        raise errors.PluginError("Error while loading plugin '%s': %s" %
+                                 plugin_name, str(e))
+
+    # No matter what the chosen plugin to watch for config updates: We get a
+    # queue and a thread-handle back. All watcher plugins provide the same
+    # interface. They all implement a start() method, which returns those
+    # things.
+    plugin = plugin_class(conf)
+    plugin.start()
 
     return {
                "monitor_thread"  : monitor_thread,
-               "observer_thread" : observer_thread,
                "q_monitor_ips"   : q_monitor_ips,
                "q_failed_ips"    : q_failed_ips,
-               "q_route_spec"    : q_route_spec
+               "watcher_plugin"  : plugin
            }
 
 
@@ -200,13 +209,12 @@ def _stop_working_threads(thread_info):
     Needs the thread-info dict created by _start_working_threads().
 
     """
-    logging.debug("Stopping config change observer...")
-    thread_info['observer_thread'].stop()   # Stop signal for config watcher
     logging.debug("Stopping health-check monitor...")
     thread_info['q_monitor_ips'].put(None)  # Stop signal for health monitor
-
-    thread_info['observer_thread'].join()
     thread_info['monitor_thread'].join()
+
+    logging.debug("Stopping config change observer...")
+    thread_info['watcher_plugin'].stop()    # Stop signal for config watcher
 
 
 def start_watcher(conf, iterations=None, sleep_time=1):
@@ -239,7 +247,7 @@ def start_watcher(conf, iterations=None, sleep_time=1):
     # threads about any failed IP addresses or updated route specs.
     _event_monitor_loop(conf['region_name'], conf['vpc_id'],
                         tinfo['q_monitor_ips'], tinfo['q_failed_ips'],
-                        tinfo['q_route_spec'],
+                        tinfo['watcher_plugin'].get_route_spec_queue(),
                         iterations, sleep_time)
 
     # Stopping and collecting all worker threads when we are done
