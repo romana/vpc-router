@@ -17,7 +17,7 @@ limitations under the License.
 
 import os
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 import vpcrouter
@@ -47,8 +47,11 @@ setup(
     description          = "Automated route management, backup routes and "
                            "route failover for Amazon VPC environments",
     long_description     = long_description,
-    packages             = ['vpcrouter'],
+    packages             = find_packages(),
     include_package_data = True,
+    entry_points         = {
+        'console_scripts' : ['vpcrouter=vpcrouter.main:main'],
+    },
     install_requires     = [
         'argparse==1.2.1',
         'boto==2.47.0',
