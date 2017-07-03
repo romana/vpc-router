@@ -15,6 +15,9 @@ limitations under the License.
 
 """
 
+# The main entry point for the executable and functions to parse command line
+# arguments.
+
 import argparse
 import logging
 import sys
@@ -95,7 +98,7 @@ def _check_conffile_mode_conf(conf):
                         (conf['file'], e))
 
 
-def parse_args():
+def parse_args(args_list):
     """
     Parse command line arguments and return relevant values in a dict.
 
@@ -106,7 +109,8 @@ def parse_args():
     # Setting up the command line argument parser
     parser = _setup_arg_parser()
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
+
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
     conf['mode']        = args.mode
@@ -159,7 +163,7 @@ def main():
 
     """
     try:
-        conf = parse_args()
+        conf = parse_args(sys.argv[1:])
         setup_logging(conf)
     except Exception as e:
         print "\n*** Error: %s\n" % e.message
