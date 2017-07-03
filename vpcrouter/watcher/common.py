@@ -19,9 +19,9 @@ limitations under the License.
 # Generally useful functions for the watcher module
 #
 
-from errors import ArgsError
+from vpcrouter.errors import ArgsError
 
-import utils
+from vpcrouter import utils
 
 
 # A shared dict in which we keep the current route state, in case someone is

@@ -24,8 +24,8 @@ import logging
 import Queue
 import time
 
-import monitor
-import vpc
+from vpcrouter import monitor
+from vpcrouter import vpc
 
 from . import configfile
 from . import http

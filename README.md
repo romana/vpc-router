@@ -48,6 +48,11 @@ it does not depend on either project and can also be used stand-alone.
 
 ## Installation
 
+You can either run vpc-router out of the source directory, or perform a full
+install.
+
+### Run out of the source directory
+
 After downloading the code, create a virtual environment, activate it and
 install the required libraries:
 
@@ -56,6 +61,15 @@ install the required libraries:
     $ source vpcrouter/bin/activate
     $ cd vpc-router
     $ pip install -r requirements/deploy.txt
+    $ ./vpcrouter-runner.py .....
+
+### Perform a full install
+
+After downloading the code, run the setup.py script:
+
+    $ git clone git@github.com:paninetworks/vpc-router.git
+    $ cd vpc-router
+    $ python setup.py install
 
 ## Contributing
 

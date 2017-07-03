@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 Copyright 2017 Pani Networks Inc.
 
@@ -21,11 +19,10 @@ import argparse
 import logging
 import sys
 
-from errors  import ArgsError, VpcRouteSetError
+from vpcrouter.errors  import ArgsError
 
-import utils
-import vpc
-import watcher
+from vpcrouter import utils
+from vpcrouter import watcher
 
 
 def _setup_arg_parser():
@@ -112,7 +109,6 @@ def parse_args():
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
-    conf['command']     = args.command
     conf['mode']        = args.mode
     conf['file']        = args.conf_file
     conf['port']        = args.listen_port
@@ -157,10 +153,11 @@ def setup_logging(conf):
                                                 setLevel(logging.INFO)
 
 
-#
-# Main body of the executable.
-#
-if __name__ == "__main__":
+def main():
+    """
+    Starting point of the executable.
+
+    """
     try:
         conf = parse_args()
         setup_logging(conf)

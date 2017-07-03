@@ -24,8 +24,8 @@ import random
 
 import boto.vpc
 
-from errors  import VpcRouteSetError
-from watcher import common
+from vpcrouter.errors  import VpcRouteSetError
+from vpcrouter.watcher import common
 
 
 def connect_to_region(region_name):

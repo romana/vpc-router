@@ -21,7 +21,7 @@ limitations under the License.
 
 import netaddr
 
-from errors import ArgsError
+from vpcrouter.errors import ArgsError
 
 
 def ip_check(ip, netmask_expected=False):
