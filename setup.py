@@ -15,10 +15,10 @@ limitations under the License.
 
 """
 
-import io
 import os
 
 from setuptools import setup
+
 
 import vpcrouter
 
@@ -26,14 +26,15 @@ import vpcrouter
 here = os.path.abspath(os.path.dirname(__file__))
 
 
-def read(filename):
-    buf = ""
-    with io.open(filename, encoding='utf-8') as f:
-        buf = f.read()
-    return buf
+def get_readme():
+    try:
+        import pypandoc
+        return pypandoc.convert('README.md', 'rst')
+    except (IOError, ImportError):
+        return ""
 
 
-long_description = read('README.txt')
+long_description = get_readme()
 
 
 setup(
