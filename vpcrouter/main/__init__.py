@@ -109,7 +109,6 @@ def parse_args():
     args = parser.parse_args()
     conf['vpc_id']      = args.vpc_id
     conf['region_name'] = args.region
-    conf['command']     = args.command
     conf['mode']        = args.mode
     conf['file']        = args.conf_file
     conf['port']        = args.listen_port
