@@ -51,10 +51,11 @@ it does not depend on either project and can also be used stand-alone.
 You can either run vpc-router out of the source directory, or perform a full
 install.
 
-### Run out of the source directory
+### Run vpc-router out of the source directory
 
 After downloading the code, create a virtual environment, activate it and
-install the required libraries:
+install the required libraries. You can then use the `vpcrouter-runner.py`
+helper script to run vpc-router without a full install:
 
     $ git clone git@github.com:paninetworks/vpc-router.git
     $ virtualenv vpcrouter
@@ -65,18 +66,23 @@ install the required libraries:
 
 ### Perform a full install
 
-After downloading the code, run the setup.py script:
+After downloading the code, run the `setup.py` script, which will put vpcrouter
+into your path:
 
     $ git clone git@github.com:paninetworks/vpc-router.git
     $ cd vpc-router
     $ python setup.py install
+    $ vpcrouter .......
 
 ## Contributing
 
-We welcome any contributions, bug reports or feedback.
+We welcome any contributions, bug reports or feedback. Please use our [issue
+tracker](https://github.com/romana/vpc-router/issues) to file bugs or request
+additional features.
 
-Please read DEVELOPERS.txt for information that might be useful if you wish to
-develop or contribute to vpc-router.
+In order to develop or extend vpc-router, please read the [developer
+documentation](DEVELOPERS.md) for information that might be useful to get you
+started.
 
 ## Configuration: The route spec
 
@@ -106,18 +112,23 @@ of the route spec.
 
 ## Modes of operation
 
-By default there are two modes in which vpc-router can receive configuration
+By default there are three modes in which vpc-router can receive configuration
 updates:
 
 * configfile: Continuosly monitor a route spec configuration file for any changes.
 * http: Receive updated route specs via HTTP POSTs.
+* fixedconf: With this a static config can be provided on the command line. It
+  is mostly used as a simple example for plugin developers. It does work
+  and might be useful in some cases, but is not commonly going to be used in
+  production.
 
-The format of the config data in both cases (config file or POST request) is
-the identical.
+The format of the config data in for the configfile or http mode (config file
+or POST request) is the identical.
 
 The modes for the detection of configuration updates are implemented via
 plugins. It is therefore easy to directly extend vpc-router to integrate with
-various orchestration systems. How to write plugins is documented separately.
+various orchestration systems. [How to write plugins](PLUGINS.md) is documented
+separately.
 
 ### Mode 'configfile' 
 
