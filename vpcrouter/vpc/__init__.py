@@ -224,6 +224,9 @@ def _update_existing_routes(route_spec, failed_ips,
     Keeps track of the routes we have seen in each RT and populates the
     passed-in routes_in_rts dictionary with that info.
 
+    Returns a dict with the routers chosen for the various routes we
+    encountered.
+
     """
     chosen_routers = {}              # keep track of chosen routers for CIDRs
     NONE_HEALTHY   = "none-healthy"  # used as marker in chosen_routers
@@ -323,17 +326,25 @@ def _update_existing_routes(route_spec, failed_ips,
             _update_route(dcidr, new_router_ip, ipaddr,
                           vpc_info, con, rt.id, update_reason)
 
+    return chosen_routers
 
-def _add_missing_routes(route_spec, failed_ips, vpc_info, con, routes_in_rts):
+
+def _add_missing_routes(route_spec, failed_ips, chosen_routers,
+                        vpc_info, con, routes_in_rts):
     """
     Iterate over route spec and add all the routes we haven't set yet.
 
     This relies on the being told what routes we HAVE already. This is passed
     in via the routes_in_rts dict.
 
+    Furthermore, some routes may be set in some RTs, but not in others. In that
+    case, we may already have seen which router was chosen for a certain route.
+    This information is passed in via the chosen_routers dict. We should choose
+    routers that were used before.
+
     """
     for dcidr, hosts in route_spec.items():
-        new_router_ip = None
+        new_router_ip = chosen_routers.get(dcidr)
         # Look at the routes we have seen in each of the route tables.
         for rt_id, dcidr_list in routes_in_rts.items():
             if dcidr not in dcidr_list:
@@ -375,12 +386,13 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # Need to remember the routes we saw in different RTs, so that we can later
     # add them, if needed.
     routes_in_rts  = {}
-    _update_existing_routes(route_spec, failed_ips, vpc_info, con,
-                            routes_in_rts)
+    chosen_routers = _update_existing_routes(route_spec, failed_ips,
+                                             vpc_info, con, routes_in_rts)
 
     # Now go over all the routes in the spec and add those that aren't in VPC,
     # yet.
-    _add_missing_routes(route_spec, failed_ips, vpc_info, con, routes_in_rts)
+    _add_missing_routes(route_spec, failed_ips, chosen_routers,
+                        vpc_info, con, routes_in_rts)
 
 
 def handle_spec(region_name, vpc_id, route_spec, failed_ips):
