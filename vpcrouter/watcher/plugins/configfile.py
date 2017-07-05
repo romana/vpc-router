@@ -16,7 +16,7 @@ limitations under the License.
 """
 
 #
-# Functions for watching route spec config file for changes.
+# A watcher plugin for observing a route spec config file for changes.
 #
 
 import json
@@ -153,7 +153,7 @@ class Configfile(common.WatcherPlugin):
         # Arguments for the configfile mode
         parser.add_argument('-f', '--file', dest='file',
                             help="config file for routing groups "
-                                 "(only in configfile mode)"),
+                                 "(only in configfile mode)")
         return ["file"]
 
     @classmethod

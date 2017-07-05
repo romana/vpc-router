@@ -1,8 +1,15 @@
+# Contributing and developing
+
+We welcome any contribution or feedback to vpc-router. Please use the [issue
+tracker](https://github.com/romana/vpc-router/issues) to file bugs or request
+features.
+
 
 ## Installation of required dependencies
 
 When developing or contributing to vpc-router it is helpful to install some
-useful packages for running local unit tests. You can do so with this command:
+useful packages for running local unit tests. You can do so with this command
+(after you have performed the install outlined in the [README](README.md)):
 
     $ pip install -r requirements/develop.txt
 
@@ -10,7 +17,7 @@ useful packages for running local unit tests. You can do so with this command:
 ## Running out of the source tree
 
 Use the `vpcrouter-runner.py` script to run the program without having to
-actually install the application.
+actually install (`setup.py`) the application.
 
     $ ./vpcrouter-runner.py ...
 
@@ -36,4 +43,24 @@ code complexity.
 
     $ ./style_test.sh
 
+
+## Architecture
+
+The architecture of vpc-router is simple:
+
+* A health-monitor thread detects if there are any failed hosts.
+* A configuration-watcher thread detects if there are any updates to the
+  routing configuration.
+* A main loop receives notifications from both those threads via queues.
+* If an update is received on either queue (failed hosts or new config) the
+  'route-spec' is processed: Check the current routes in VPC against the spec,
+  see if all requested routes are present and if the current routers for each
+  route are still healthy. If this is not the case the route is updated or
+  removed or a new route is added.
+* If a new route configuration is received, the main event loop updates the
+  health-monitor thread with the new combined list of all hosts, via a third
+  queue.
+* The configuration-watcher thread utilizes plugins, which are dynamically
+  loaded, and which are used depending on the selected mode (-m option on the
+  command line).
 
