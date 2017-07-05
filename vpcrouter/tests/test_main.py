@@ -60,18 +60,18 @@ class TestArgs(unittest.TestCase):
              "exc" : SystemExit, "out" : "2"},
             {"args" : ['-l', 'foo'],
              "exc" : SystemExit, "out" : "2"},
-            {"args" : ['-l', 'foo', '-v', '123'],
+            {"args" : ['-l', 'foo', '-v', '123', '-m', 'http'],
              "exc" : None,
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
                  'file': None, 'vpc_id': '123', 'logfile': 'foo',
                  'port': 33289, 'region_name': 'ap-southeast-2'}},
             {"args" : ['-l', 'foo', '-v', '123', '-m', 'foo'],
-             "exc" : ArgsError, "out" : "Invalid operating mode 'foo'."},
-            {"args" : ['-l', 'foo', '-v', '123', '-m', 'conffile'],
+             "exc" : ArgsError, "out" : "Unknown mode 'foo'"},
+            {"args" : ['-l', 'foo', '-v', '123', '-m', 'configfile'],
              "exc" : ArgsError,
              "out" : "A config file needs to be specified (-f)."},
-            {"args" : ['-l', 'foo', '-v', '123', '-m', 'conffile',
+            {"args" : ['-l', 'foo', '-v', '123', '-m', 'configfile',
                        '-f', "/_does_not_exists"],
              "exc" : ArgsError,
              "out" : "Cannot open config file"},
@@ -83,21 +83,22 @@ class TestArgs(unittest.TestCase):
              "out" : "Not a valid IP address"}
         ]
 
+        pl = main.load_plugins()
         for i in inp:
-            sys.stdout = StringIO()
-            sys.stderr = StringIO()
             args = i['args']
             exc  = i['exc']
             out  = i.get('out', "")
             conf = i.get('conf', {})
+            sys.stdout = StringIO()
+            sys.stderr = StringIO()
             if exc:
                 with self.assertRaises(exc) as ex:
-                    main.parse_args(args)
+                    main.parse_args(args, pl)
                 self.assertTrue(out in str(ex.exception.message))
             else:
-                conf_is = main.parse_args(args)
-                output = sys.stderr.getvalue().strip()
-                ll     = self.get_last_line(output)
+                conf_is = main.parse_args(args, pl)
+                output  = sys.stderr.getvalue().strip()
+                ll      = self.get_last_line(output)
                 if not out:
                     self.assertFalse(ll)
                 else:

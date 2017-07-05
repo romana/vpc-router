@@ -44,3 +44,11 @@ class ArgsError(_Exception):
 
     """
     pass
+
+
+class PluginError(_Exception):
+    """
+    Errors while loading plugins.
+
+    """
+    pass

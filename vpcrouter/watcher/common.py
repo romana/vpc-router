@@ -19,18 +19,87 @@ limitations under the License.
 # Generally useful functions for the watcher module
 #
 
+import Queue
+
+from vpcrouter        import utils
 from vpcrouter.errors import ArgsError
 
-from vpcrouter import utils
 
+class WatcherPlugin(object):
+    """
+    Base class for all watcher plugins.
 
-# A shared dict in which we keep the current route state, in case someone is
-# interested.
-CURRENT_STATE = {
-    "failed_ips" : [],
-    "route_spec" : {},
-    "routes" : {}
-}
+    Every plugin should implement all of these functions.
+
+    A plugin watches for configuration changes in the route-spec. If there is
+    an update, it pushes a new route-spec out on a queue, which the rest of the
+    vpc-router uses to listen for new route-specs. The queue has to be created
+    by the plugin. A reference to the queue needs to be made available via the
+    get_route_spec_queue() method.
+
+    It's up to the plugin to implement a thread or process and how exactly and
+    from where it gets information about routes and eligible target hosts.
+    Whatever mechanism is chosen, the plugin should provide a start() and
+    stop() method.
+
+    If a plugin requires additional command line arguments, it can add those
+    via the add_arguments() callback. It should provide sanity checking for
+    those arguments via the check_arguments() callback.
+
+    """
+    def __init__(self, conf):
+        """
+        Gives access to the config of the program to the plugin.
+
+        This includes all parameters, not just the ones specific to the
+        plugin.
+
+        Also creates the queue that each plugin needs to use to communicate
+        updated route specs out.
+
+        """
+        self.conf         = conf
+        self.q_route_spec = Queue.Queue()
+
+    def start(self):
+        """
+        Start the config watch thread or process.
+
+        """
+        raise NotImplementedError()
+
+    def stop(self):
+        """
+        Stop the config watch thread or process.
+
+        """
+        raise NotImplementedError()
+
+    def get_route_spec_queue(self):
+        """
+        Return the queue, which the plugin uses to announce new route specs
+        that it detected.
+
+        """
+        return self.q_route_spec
+
+    @classmethod
+    def add_arguments(cls, parser):
+        """
+        Callback to add command line options for this plugin to the argparse
+        parser.
+
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def check_arguments(cls, conf):
+        """
+        Callback to perform sanity checking for the plugin's specific
+        parameters.
+
+        """
+        raise NotImplementedError()
 
 
 def parse_route_spec_config(data):
@@ -45,7 +114,8 @@ def parse_route_spec_config(data):
         "<CIDR-3>" : [ "host-6-ip", "host-7-ip", "host-8-ip", "host-9-ip" ]
     }
 
-    Returns the validated route config.
+    Returns the validated route config. This validation is performed on any
+    route-spec pushed out by the config watcher plugin.
 
     Raises ValueError exception in case of problems.
 

@@ -22,12 +22,12 @@ limitations under the License.
 import json
 import logging
 import os
-import Queue
 
 import watchdog.events
 import watchdog.observers
 
-from . import common
+from vpcrouter.errors  import ArgsError
+from vpcrouter.watcher import common
 
 
 class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
@@ -95,42 +95,79 @@ def read_route_spec_config(fname):
     return data
 
 
-def start_config_change_detection_thread(fname, region_name, vpc_id):
+class Configfile(common.WatcherPlugin):
     """
-    Monitor the route spec file for any changes.
+    Implements the WatcherPlugin interface for the 'http' plugin.
 
-    Returns a tuple with the handle on the observer thread and a queue on which
-    it communicates the full route spec whenever it changes.
+    Start a Bottle application thread, which serves a minimal HTTP interface
+    to set route specs or enquire about the status.
 
     """
-    logging.info("Starting to watch route spec file '%s' for changes..." %
-                 fname)
-    q_route_spec = Queue.Queue()
+    def start(self):
+        """
+        Start the configfile change monitoring thread.
 
-    # Initial content of file needs to be processed at least once, before we
-    # start watching for any changes to it. Therefore, we will write it out on
-    # the queue right away.
-    route_spec = {}
-    try:
-        route_spec = read_route_spec_config(fname)
-        if route_spec:
-            q_route_spec.put(route_spec)
-    except ValueError as e:
-        logging.warning("Cannot parse route spec: %s" % str(e))
+        """
+        fname = self.conf['file']
+        logging.info("Configfile watcher plugin: Starting to watch route spec "
+                     "file '%s' for changes..." % fname)
 
-    # Now prepare to watch for any changes in that file.
-    # Find the parent directory of the config file, since this is where we will
-    # attach a watcher to.
-    abspath    = os.path.abspath(fname)
-    parent_dir = os.path.dirname(abspath)
+        # Initial content of file needs to be processed at least once, before
+        # we start watching for any changes to it. Therefore, we will write it
+        # out on the queue right away.
+        route_spec = {}
+        try:
+            route_spec = read_route_spec_config(fname)
+            if route_spec:
+                self.q_route_spec.put(route_spec)
+        except ValueError as e:
+            logging.warning("Cannot parse route spec: %s" % str(e))
 
-    # Create the file watcher and run in endless loop
-    handler = RouteSpecChangeEventHandler(route_spec_fname   = fname,
-                                          route_spec_abspath = abspath,
-                                          q_route_spec       = q_route_spec)
-    observer_thread = watchdog.observers.Observer()
-    observer_thread.name = "ConfMon"
-    observer_thread.schedule(handler, parent_dir)
-    observer_thread.start()
+        # Now prepare to watch for any changes in that file.  Find the parent
+        # directory of the config file, since this is where we will attach a
+        # watcher to.
+        abspath    = os.path.abspath(fname)
+        parent_dir = os.path.dirname(abspath)
 
-    return observer_thread, q_route_spec
+        # Create the file watcher and run in endless loop
+        handler = RouteSpecChangeEventHandler(
+                                    route_spec_fname   = fname,
+                                    route_spec_abspath = abspath,
+                                    q_route_spec       = self.q_route_spec)
+        self.observer_thread = watchdog.observers.Observer()
+        self.observer_thread.name = "ConfMon"
+        self.observer_thread.schedule(handler, parent_dir)
+        self.observer_thread.start()
+
+    def stop(self):
+        """
+        Stop the config change monitoring thread.
+
+        """
+        self.observer_thread.stop()
+        self.observer_thread.join()
+        logging.info("Configfile watcher plugin: Stopped")
+
+    @classmethod
+    def add_arguments(cls, parser):
+        # Arguments for the configfile mode
+        parser.add_argument('-f', '--file', dest='file',
+                            help="config file for routing groups "
+                                 "(only in configfile mode)"),
+        return ["file"]
+
+    @classmethod
+    def check_arguments(cls, conf):
+        """
+        Sanity checks for options needed for configfile mode.
+
+        """
+        if not conf['file']:
+            raise ArgsError("A config file needs to be specified (-f).")
+        try:
+            # Check we have access to the config file
+            f = open(conf['file'], "r")
+            f.close()
+        except IOError as e:
+            raise ArgsError("Cannot open config file '%s': %s" %
+                            (conf['file'], e))

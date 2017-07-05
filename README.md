@@ -106,30 +106,35 @@ of the route spec.
 
 ## Modes of operation
 
-There are two modes in which vpc-router can receive configuration updates:
+By default there are two modes in which vpc-router can receive configuration
+updates:
 
-* conffile: Continuosly monitor a route spec configuration file for any changes.
+* configfile: Continuosly monitor a route spec configuration file for any changes.
 * http: Receive updated route specs via HTTP POSTs.
 
 The format of the config data in both cases (config file or POST request) is
 the identical.
 
-### Mode 'conffile' 
+The modes for the detection of configuration updates are implemented via
+plugins. It is therefore easy to directly extend vpc-router to integrate with
+various orchestration systems. How to write plugins is documented separately.
 
-The following command starts vpc-router as a service daemon in 'conffile'
+### Mode 'configfile' 
+
+The following command starts vpc-router as a service daemon in 'configfile'
 mode:
 
-    $ ./vpc-router.py -m conffile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
+    $ ./vpc-router.py -m configfile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
 
 The used options are:
 
-* `-m conffile` tells vpc-router to take config changes from a specified route
+* `-m configfile` tells vpc-router to take config changes from a specified route
   spec file.
 * `-f` specifies the name of the route spec config file.
 * `-r` specifies the AWS region to which vpc-router should connect.
 * `-v` specifies the VPC for which vpc-router should perform route updates.
 
-In 'conffile' mode the `-f` option must be used to specify the route spec
+In 'configfile' mode the `-f` option must be used to specify the route spec
 config file. It must exist when the server is started. The server then
 continuously monitors this file for changes.
 

@@ -28,7 +28,7 @@ from testfixtures  import LogCapture
 
 from vpcrouter import vpc
 
-from . import common
+from . import test_common
 
 
 class TestVpcUtil(unittest.TestCase):
@@ -68,7 +68,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
     """
     def setUp(self):
         self.lc = LogCapture()
-        self.lc.addFilter(common.MyLogCaptureFilter())
+        self.lc.addFilter(test_common.MyLogCaptureFilter())
         self.addCleanup(self.cleanup)
         # Hosts are chosen randomly from a prefix group. Therefore, we need to
         # seed the random number generator with a specific value in order to
@@ -171,9 +171,9 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s' % self.i1ip),
             ('root', 'INFO',
-             "--- route exists already in RT '%s', "
-             "but with different destination: updating "
-             "10.1.0.0/16 -> %s (%s, %s)" %
+             "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
+             "%s (%s, %s) (old IP: None, reason: old IP failed or not "
+             "eligible anymore)" %
              (rt_id, self.i2ip, i2.id, eni2.id)))
 
         # Now all IPs for a route have failed
@@ -186,7 +186,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
              'Route spec processing. Failed IPs: %s,%s' %
              (self.i1ip, self.i2ip)),
             ('root', 'WARNING',
-             '--- cannot find available target for route 10.1.0.0/16! '
+             '--- cannot find available target for route update 10.1.0.0/16! '
              'Nothing I can do...'))
 
         # Add new route, remove old one
