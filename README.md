@@ -75,8 +75,8 @@ After downloading the code, run the setup.py script:
 
 We welcome any contributions, bug reports or feedback.
 
-Please read [[DEVELOPERS.md]] for information that might be useful if you wish to
-develop or contribute to vpc-router.
+Please read the [developer documentation](DEVELOPERS.md) for information that
+might be useful if you wish to develop or contribute to vpc-router.
 
 ## Configuration: The route spec
 
