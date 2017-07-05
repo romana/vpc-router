@@ -64,3 +64,8 @@ The architecture of vpc-router is simple:
   loaded, and which are used depending on the selected mode (-m option on the
   command line).
 
+
+## Developing plugins
+
+Please read the [plugin developer documentation](PLUGINS.md).
+

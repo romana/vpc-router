@@ -127,7 +127,8 @@ or POST request) is the identical.
 
 The modes for the detection of configuration updates are implemented via
 plugins. It is therefore easy to directly extend vpc-router to integrate with
-various orchestration systems. How to write plugins is documented separately.
+various orchestration systems. [How to write plugins](PLUGINS.md) is documented
+separately.
 
 ### Mode 'configfile' 
 
