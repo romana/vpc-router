@@ -48,15 +48,17 @@ code complexity.
 
 The architecture of vpc-router is simple:
 
-* A health-monitor thread detects if there are any failed hosts.
+* A health-monitor thread detects if there are any failed hosts
+  (`vpcrouter.monitor`).
 * A configuration-watcher thread detects if there are any updates to the
-  routing configuration.
-* A main loop receives notifications from both those threads via queues.
+  routing configuration (`vpcrouter.watcher.plugins.*`)
+* A main loop receives notifications from both those threads via queues
+  (`vpcrouter.watcher._event_monitor_loop`).
 * If an update is received on either queue (failed hosts or new config) the
-  'route-spec' is processed: Check the current routes in VPC against the spec,
-  see if all requested routes are present and if the current routers for each
-  route are still healthy. If this is not the case the route is updated or
-  removed or a new route is added.
+  'route-spec' is processed (`vpcrouter.vpc.handle_spec`): Check the current
+  routes in VPC against the spec, see if all requested routes are present and
+  if the current routers for each route are still healthy. If this is not the
+  case the route is updated or removed or a new route is added.
 * If a new route configuration is received, the main event loop updates the
   health-monitor thread with the new combined list of all hosts, via a third
   queue.
