@@ -1,22 +1,22 @@
 
-Installation of required dependencies
-=====================================
+## Installation of required dependencies
+
 When developing or contributing to vpc-router it is helpful to install some
 useful packages for running local unit tests. You can do so with this command:
 
     $ pip install -r requirements/develop.txt
 
 
-Running out of the source tree
-==============================
+## Running out of the source tree
+
 Use the `vpcrouter-runner.py` script to run the program without having to
 actually install the application.
 
     $ ./vpcrouter-runner.py ...
 
 
-Testing
-=======
+## Testing
+
 To run all unit tests, use the `run_tests.sh` script, like so:
 
     $ ./run_tests.sh
