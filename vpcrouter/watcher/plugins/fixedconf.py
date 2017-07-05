@@ -25,6 +25,7 @@ from vpcrouter         import utils
 from vpcrouter.errors  import ArgsError
 from vpcrouter.watcher import common
 
+
 class Fixedconf(common.WatcherPlugin):
     """
     Implement a watcher plugin for a fixed config provided on the command line.
