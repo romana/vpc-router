@@ -9,6 +9,9 @@ clusters with the performance and visibility of native VPC networking.
 It can also be used independently of Kubernetes whenever you need to manage
 routes, backup routes and route failover in VPC environments.
 
+It provides a plugin architecture for the easy integration with other cloud
+orchestration systems.
+
 ## Introduction
 
 vpc-router is a utility for setting and deleting routes in Amazon EC2 VPC route
