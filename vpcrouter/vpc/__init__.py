@@ -24,8 +24,8 @@ import random
 
 import boto.vpc
 
-from vpcrouter.errors  import VpcRouteSetError
-from vpcrouter.watcher import common
+from vpcrouter.errors       import VpcRouteSetError
+from vpcrouter.currentstate import CURRENT_STATE
 
 
 def connect_to_region(region_name):
@@ -161,93 +161,193 @@ def _choose_from_hosts(ip_list, failed_ips):
     return None
 
 
-def _check_or_update_route(dcidr, current_instance, current_eni,
-                           current_ipaddr, hosts, failed_ips,
-                           route, route_table, vpc_info, con):
+def _update_route(dcidr, router_ip, old_router_ip,
+                  vpc_info, con, route_table_id, update_reason):
     """
-    Given an existing route, make sure it points to a healthy host.
+    Update an existing route entry in the route table.
 
     """
-    current_ipaddr_has_failed = current_ipaddr in failed_ips
-    # This route is in the spec!
-    if current_ipaddr in hosts and not current_ipaddr_has_failed:
-        # Host in spec and healthy? All good...
-        logging.info("--- route exists already in RT '%s': "
-                     "%s -> %s (%s, %s)" %
-                     (route_table.id, dcidr,
-                      current_ipaddr, current_instance.id, current_eni.id))
-    else:
-        # Select a new host randomly
-        new_addr = _choose_from_hosts(hosts, failed_ips)
-        if not new_addr:
-            logging.warning("--- cannot find available target "
-                            "for route %s! "
-                            "Nothing I can do..." % dcidr)
-            return
+    try:
+        instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
 
-        # New host is chosen, update the route
-        try:
+        logging.info("--- updating existing route in RT '%s' "
+                     "%s -> %s (%s, %s) (old IP: %s, reason: %s)" %
+                     (route_table_id, dcidr, router_ip,
+                      instance.id, eni.id, old_router_ip, update_reason))
 
-            # So far we only have the new host's IP address, let's find
-            # instance and interface info
-            new_instance, new_eni = \
-                find_instance_and_emi_by_ip(vpc_info, new_addr)
+        con.replace_route(
+                    route_table_id         = route_table_id,
+                    destination_cidr_block = dcidr,
+                    instance_id            = instance.id,
+                    interface_id           = eni.id)
+        CURRENT_STATE['routes'][dcidr] = \
+                                    (router_ip, str(instance.id), str(eni.id))
 
-            # Make a nice log message
-            if current_ipaddr_has_failed:
-                msg_fragment = "but router IP %s has failed: " % \
-                                        current_ipaddr
-            else:
-                msg_fragment = "but with different destination: "
-            logging.info("--- route exists already in RT '%s', %s"
-                         "updating %s -> %s (%s, %s)" %
-                         (route_table.id, msg_fragment, dcidr, new_addr,
-                          new_instance.id, new_eni.id))
-
-            con.replace_route(
-                        route_table_id         = route_table.id,
-                        destination_cidr_block = dcidr,
-                        instance_id            = new_instance.id,
-                        interface_id           = new_eni.id)
-            common.CURRENT_STATE['routes'][dcidr] = \
-                        (new_addr, str(new_instance.id),
-                         str(new_eni.id))
-
-        except VpcRouteSetError as e:
-            logging.error("*** failed to update route in RT '%s' "
-                          "%s -> %s (%s)" %
-                          (route_table.id, dcidr, current_ipaddr, e.message))
+    except VpcRouteSetError as e:
+        logging.error("*** failed to update route in RT '%s' "
+                      "%s -> %s (%s)" %
+                      (route_table_id, dcidr, old_router_ip, e.message))
 
 
-def _add_new_route(hosts, failed_ips, vpc_info, con,
-                   route_table_id, dcidr):
+def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
     """
     Add a new route to the route table.
 
     """
     try:
-        new_addr = _choose_from_hosts(hosts, failed_ips)
-        if not new_addr:
-            logging.warning("--- cannot find available target "
-                            "for route %s! "
-                            "Nothing I can do..." % dcidr)
-            return
-        instance, eni = find_instance_and_emi_by_ip(
-                                          vpc_info, new_addr)
+        instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
 
         logging.info("--- adding route in RT '%s' "
                      "%s -> %s (%s, %s)" %
-                     (route_table_id, dcidr, new_addr, instance.id, eni.id))
+                     (route_table_id, dcidr, router_ip, instance.id, eni.id))
         con.create_route(route_table_id         = route_table_id,
                          destination_cidr_block = dcidr,
                          instance_id            = instance.id,
                          interface_id           = eni.id)
-        common.CURRENT_STATE['routes'][dcidr] = \
-                    (new_addr, str(instance.id), str(eni.id))
+        CURRENT_STATE['routes'][dcidr] = \
+                                    (router_ip, str(instance.id), str(eni.id))
     except VpcRouteSetError as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
-                      (route_table_id, dcidr, new_addr, e.message))
+                      (route_table_id, dcidr, router_ip, e.message))
+
+
+def _update_existing_routes(route_spec, failed_ips,
+                            vpc_info, con, routes_in_rts):
+    """
+    Go over the existing routes and check whether they still match the spec.
+
+    If the chosen router has failed, or is not in the host list anymore, the
+    route needs to be updated. If the CIDR isn't in the spec at all anymore
+    then it needs to be deleted.
+
+    Keeps track of the routes we have seen in each RT and populates the
+    passed-in routes_in_rts dictionary with that info.
+
+    """
+    chosen_routers = {}              # keep track of chosen routers for CIDRs
+    NONE_HEALTHY   = "none-healthy"  # used as marker in chosen_routers
+    for rt in vpc_info['route_tables']:
+        routes_in_rts[rt.id] = []
+        # Iterate over all the routes we find in each RT
+        for r in rt.routes:
+            dcidr = r.destination_cidr_block
+            if r.instance_id is None:
+                # There are some routes already present in the route table,
+                # which we don't need to mess with. Specifically, routes that
+                # aren't attached to a particular instance. We skip those.
+                continue
+            routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
+
+            hosts = route_spec.get(dcidr)       # eligible routers for CIDR
+
+            # Current router host for this CIDR/route
+            instance    = vpc_info['instance_by_id'][r.instance_id]
+            ipaddr, eni = get_instance_private_ip_from_route(instance, r)
+
+            if not hosts:
+                # The route isn't in the spec anymore and should be deleted.
+                logging.info("--- route not in spec, deleting in RT '%s': "
+                             "%s -> ... (%s, %s)" %
+                             (rt.id, dcidr, instance.id,
+                              eni.id if eni else "(unknown)"))
+                con.delete_route(route_table_id         = rt.id,
+                                 destination_cidr_block = dcidr)
+                if dcidr in CURRENT_STATE['routes']:
+                    del CURRENT_STATE['routes'][dcidr]
+
+                continue
+
+            # We have a route and it's still in the spec. Do we need to update
+            # the router? Multiple reasons for that:
+            # - Router is not in the list of eligible hosts anymore
+            # - Router has failed
+            # - In a different route table we used a different host as the
+            #   router.
+
+            # Seen this route in another RT before? This will be None if we'be
+            # not seen it before, and will be NONE_HEALTHY, but we couldn't
+            # find a single healthy eligible router host for it.
+            stored_router_ip = chosen_routers.get(dcidr)
+
+            # Has our current router failed?
+            ipaddr_has_failed = ipaddr in failed_ips
+
+            # Is the host not eligible anymore?
+            ipaddr_not_eligible = ipaddr not in hosts
+
+            cant_use_ipaddr = ipaddr_has_failed or ipaddr_not_eligible
+
+            if (not stored_router_ip or stored_router_ip == ipaddr) and \
+                                                    not cant_use_ipaddr:
+                # Haven't seen it before, or points to same router AND
+                # router is healthy: All good
+
+                if not stored_router_ip:
+                    # Remember this IP as a suitable router for CIDR
+                    chosen_routers[dcidr] = ipaddr
+                logging.info("--- route exists already in RT '%s': "
+                             "%s -> %s (%s, %s)" %
+                             (rt.id, dcidr,
+                              ipaddr, instance.id, eni.id))
+                continue
+
+            if stored_router_ip == NONE_HEALTHY:
+                # We've tried to set a route for this before, but
+                # couldn't find any health hosts. Can't do anything and
+                # need to skip.
+                continue
+
+            if stored_router_ip:
+                # Just use the router we've seen before. We know that'll work,
+                # because only healthy hosts make it into the chosen_routers
+                # dict.
+                new_router_ip = stored_router_ip
+                update_reason = "other RT used different IP"
+            else:
+                # Haven't seen this route in another RT, so we'll
+                # choose a new router
+                new_router_ip = _choose_from_hosts(hosts, failed_ips)
+                if new_router_ip is None:
+                    # Couldn't find healthy host to be router, forced
+                    # to skip this one.
+                    chosen_routers[dcidr] = NONE_HEALTHY
+                    logging.warning("--- cannot find available target "
+                                    "for route update %s! "
+                                    "Nothing I can do..." % (dcidr))
+                    continue
+
+                chosen_routers[dcidr] = new_router_ip
+                update_reason = "old IP failed or not eligible anymore"
+
+            _update_route(dcidr, new_router_ip, ipaddr,
+                          vpc_info, con, rt.id, update_reason)
+
+
+def _add_missing_routes(route_spec, failed_ips, vpc_info, con, routes_in_rts):
+    """
+    Iterate over route spec and add all the routes we haven't set yet.
+
+    This relies on the being told what routes we HAVE already. This is passed
+    in via the routes_in_rts dict.
+
+    """
+    for dcidr, hosts in route_spec.items():
+        new_router_ip = None
+        # Look at the routes we have seen in each of the route tables.
+        for rt_id, dcidr_list in routes_in_rts.items():
+            if dcidr not in dcidr_list:
+                if not new_router_ip:
+                    # We haven't chosen a target host for this CIDR.
+                    new_router_ip = _choose_from_hosts(hosts, failed_ips)
+                    if not new_router_ip:
+                        logging.warning("--- cannot find available target "
+                                        "for route addition %s! "
+                                        "Nothing I can do..." % (dcidr))
+                        # Skipping the check on any further RT, breaking out to
+                        # outer most loop over route spec
+                        break
+                _add_new_route(dcidr, new_router_ip, vpc_info, con, rt_id)
 
 
 def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
@@ -270,47 +370,17 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
         logging.debug("Route spec processing. No failed IPs.")
 
     # Iterate over all the routes in the VPC, check they are contained in
-    # the spec, update the routes as needed. Note that the status of the routes
-    # is checked/updated for every route table, so we may see more than one
-    # update for a given route.
-    routes_in_rts = {}    # quick lookup of VPC routes by CIDR in 2nd loop
-    for rt in vpc_info['route_tables']:
-        routes_in_rts[rt.id] = []
-        for r in rt.routes:
-            dcidr = r.destination_cidr_block
-            routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
-            if r.instance_id is None:
-                # There are some routes already present in the route table,
-                # which we don't need to mess with. Specifically, routes that
-                # aren't attached to a particular instance. We skip those.
-                continue
-            hosts = route_spec.get(dcidr)
+    # the spec, update the routes as needed.
 
-            instance    = vpc_info['instance_by_id'][r.instance_id]
-            ipaddr, eni = get_instance_private_ip_from_route(instance, r)
-
-            if hosts:
-                _check_or_update_route(dcidr, instance, eni,
-                                       ipaddr, hosts, failed_ips,
-                                       r, rt, vpc_info, con)
-            else:
-                # The route isn't in the spec anymore and should be deleted.
-                logging.info("--- route not in spec, deleting in RT '%s': "
-                             "%s -> ... (%s, %s)" %
-                             (rt.id, dcidr, instance.id,
-                              eni.id if eni else "(unknown)"))
-                con.delete_route(route_table_id         = rt.id,
-                                 destination_cidr_block = dcidr)
-                if dcidr in common.CURRENT_STATE['routes']:
-                    del common.CURRENT_STATE['routes'][dcidr]
+    # Need to remember the routes we saw in different RTs, so that we can later
+    # add them, if needed.
+    routes_in_rts  = {}
+    _update_existing_routes(route_spec, failed_ips, vpc_info, con,
+                            routes_in_rts)
 
     # Now go over all the routes in the spec and add those that aren't in VPC,
     # yet.
-    for dcidr, hosts in route_spec.items():
-        # Look at the routes we have seen in each of the route tables.
-        for rt_id, dcidr_list in routes_in_rts.items():
-            if dcidr not in dcidr_list:
-                _add_new_route(hosts, failed_ips, vpc_info, con, rt_id, dcidr)
+    _add_missing_routes(route_spec, failed_ips, vpc_info, con, routes_in_rts)
 
 
 def handle_spec(region_name, vpc_id, route_spec, failed_ips):

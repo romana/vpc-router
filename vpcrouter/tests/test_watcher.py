@@ -35,7 +35,9 @@ from vpcrouter import monitor
 from vpcrouter import watcher
 from vpcrouter import vpc
 
-from . import common
+from vpcrouter.watcher.plugins import configfile
+
+from . import test_common
 
 RES = None
 
@@ -44,7 +46,7 @@ class TestRouteSpec(unittest.TestCase):
 
     def setUp(self):
         self.lc = LogCapture()
-        self.lc.addFilter(common.MyLogCaptureFilter())
+        self.lc.addFilter(test_common.MyLogCaptureFilter())
         self.temp_dir = tempfile.mkdtemp()
         self.addCleanup(self.cleanup)
 
@@ -67,7 +69,7 @@ class TestRouteSpec(unittest.TestCase):
 
         with open(abs_fname, "w+") as f:
             myq = MyQueue()
-            handler = watcher.configfile.RouteSpecChangeEventHandler(
+            handler = configfile.RouteSpecChangeEventHandler(
                                               route_spec_fname   = "r.spec",
                                               route_spec_abspath = abs_fname,
                                               q_route_spec       = myq)
@@ -144,7 +146,7 @@ class TestRouteSpec(unittest.TestCase):
                 self.assertEqual(res, test_data['inp'])
 
 
-class TestWatcherConffile(unittest.TestCase):
+class TestWatcherConfigfile(unittest.TestCase):
 
     def additional_setup(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -153,7 +155,7 @@ class TestWatcherConffile(unittest.TestCase):
             "file"        : self.abs_fname,
             "region_name" : "dummy-region",
             "vpc_id"      : "dummy-vpc",
-            "mode"        : "conffile"
+            "mode"        : "configfile"
         }
         # The watcher thread needs to have a config file available right at the
         # start, even if there's nothing in it
@@ -162,7 +164,7 @@ class TestWatcherConffile(unittest.TestCase):
     def setUp(self):
         self.lc = LogCapture()
         self.lc.setLevel(logging.DEBUG)
-        self.lc.addFilter(common.MyLogCaptureFilter())
+        self.lc.addFilter(test_common.MyLogCaptureFilter())
 
         self.additional_setup()
 
@@ -204,8 +206,8 @@ class TestWatcherConffile(unittest.TestCase):
 
     def start_thread_log_tuple(self):
         return ('root', 'INFO',
-                "Starting to watch route spec file '%s' for changes..." %
-                self.abs_fname)
+                "Configfile watcher plugin: Starting to watch route spec file "
+                "'%s' for changes..." % self.abs_fname)
 
     def change_event_log_tuple(self):
         return ('root', 'INFO',
@@ -237,7 +239,7 @@ class TestWatcherConffile(unittest.TestCase):
         self.lc.clear()
         self.write_config(inp)
 
-        time.sleep(1.5)
+        time.sleep(1.0)
         # Config file malformed
         self.lc.check(
             self.change_event_log_tuple(),
@@ -267,7 +269,7 @@ class TestWatcherConffile(unittest.TestCase):
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
             self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
-            self.tinfo['q_route_spec'],
+            self.tinfo['watcher_plugin'].get_route_spec_queue(),
             iterations=1, sleep_time=0.5)
 
         time.sleep(2)
@@ -303,7 +305,7 @@ class TestWatcherConffile(unittest.TestCase):
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
             self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
-            self.tinfo['q_route_spec'],
+            self.tinfo['watcher_plugin'].get_route_spec_queue(),
             iterations=1, sleep_time=0.5)
 
         time.sleep(2)
@@ -319,10 +321,10 @@ class TestWatcherConffile(unittest.TestCase):
 PORT = 33289
 
 
-class TestWatcherHttp(TestWatcherConffile):
+class TestWatcherHttp(TestWatcherConfigfile):
     """
-    Same configs and tests as the conffile test case, except that the config is
-    written with an HTTP request.
+    Same configs and tests as the configfile test case, except that the config
+    is written with an HTTP request.
 
     We just need to overwrite a few hooks.
 
@@ -350,8 +352,8 @@ class TestWatcherHttp(TestWatcherConffile):
 
     def start_thread_log_tuple(self):
         return ('root', 'INFO',
-                "Starting to watch for route spec on 'localhost:%d'..." %
-                self.conf['port'])
+                "Http watcher plugin: Starting to watch for route spec on "
+                "'localhost:%d'..." % self.conf['port'])
 
     def change_event_log_tuple(self):
         return ('root', 'INFO', "New route spec posted")

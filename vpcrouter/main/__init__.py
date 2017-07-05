@@ -26,12 +26,11 @@ import sys
 
 from vpcrouter.errors  import ArgsError, PluginError
 
-from vpcrouter         import utils
 from vpcrouter         import watcher
 from vpcrouter.watcher import plugins
 
 
-def _setup_arg_parser(plugins_class_lookup=None):
+def _setup_arg_parser(plugins_class_lookup):
     """
     Configure and return the argument parser for the command line options.
 
@@ -42,6 +41,7 @@ def _setup_arg_parser(plugins_class_lookup=None):
     Return parser and the conf-name of all the arguments that have been added.
 
     """
+
     mode_names = ", ".join("'%s'" % pn for pn in plugins_class_lookup.keys())
     parser = argparse.ArgumentParser(
                     description="VPC router: Manage routes in VPC route table")
@@ -129,6 +129,39 @@ def setup_logging(conf):
                                                 setLevel(logging.INFO)
 
 
+def load_plugins():
+    """
+    Load the watcher plugins.
+
+    Return lookup dictionary: Key is module name, value is the plugin class.
+
+    """
+    plugins_class_lookup = {}
+    # Iterate over all the plugin modules we can find.
+    for _, modname, ispkg in pkgutil.iter_modules(plugins.__path__):
+        try:
+            plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % modname
+            plugin_mod        = importlib.import_module(plugin_mod_name)
+            plugin_class_name = modname.capitalize()
+            plugin_class      = getattr(plugin_mod, plugin_class_name)
+        except ImportError as e:
+            raise PluginError("Cannot load '%s'" % plugin_mod_name)
+        except AttributeError:
+            raise PluginError("Cannot find plugin class '%s' in "
+                              "plugin '%s'" %
+                              (plugin_class_name, plugin_mod_name))
+        except Exception as e:
+            raise PluginError("Error while loading plugin '%s': %s" %
+                              plugin_mod_name, str(e))
+
+        plugins_class_lookup[modname] = plugin_class
+
+    if not plugins_class_lookup:
+        raise PluginError("Could not load any plugins")
+
+    return plugins_class_lookup
+
+
 def main():
     """
     Starting point of the executable.
@@ -142,26 +175,7 @@ def main():
     # - The plugin class has to have the same name as the plugin itself, only
     #   capitalized.
     try:
-        plugins_class_lookup = {}
-        # Iterate over all the plugin modules we can find.
-        for _, modname, ispkg in pkgutil.iter_modules(plugins.__path__):
-            try:
-                plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % modname
-                plugin_mod        = importlib.import_module(plugin_mod_name)
-                plugin_class_name = modname.capitalize()
-                plugin_class      = getattr(plugin_mod, plugin_class_name)
-            except ImportError as e:
-                raise PluginError("Cannot load '%s'" % plugin_mod_name)
-            except AttributeError:
-                raise PluginError("Cannot find plugin class '%s' in "
-                                  "plugin '%s'" %
-                                  (plugin_class_name, plugin_mod_name))
-            except Exception as e:
-                raise PluginError("Error while loading plugin '%s': %s" %
-                                  plugin_mod_name, str(e))
-
-            plugins_class_lookup[modname] = plugin_class
-
+        plugins_class_lookup = load_plugins()
         conf = parse_args(sys.argv[1:], plugins_class_lookup)
         setup_logging(conf)
         try:

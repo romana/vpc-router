@@ -23,15 +23,15 @@ limitations under the License.
 import bottle
 import json
 import logging
-import Queue
 import threading
 import time
 
 from functools import wraps
 
-from vpcrouter         import utils
-from vpcrouter.errors  import ArgsError
-from vpcrouter.watcher import common
+from vpcrouter              import utils
+from vpcrouter.errors       import ArgsError
+from vpcrouter.watcher      import common
+from vpcrouter.currentstate import CURRENT_STATE
 
 
 # Need the queue available inside of the request handler functions. There
@@ -117,7 +117,7 @@ def handle_status_request():
     bottle.response.status        = 200
     bottle.response.content_type = 'application/json'
     return json.dumps({"time" : time.time(),
-                       "state" : common.CURRENT_STATE})
+                       "state" : CURRENT_STATE})
 
 
 @APP.route('/route_spec', method='GET')
@@ -132,7 +132,7 @@ def handle_route_spec_request():
     try:
         if bottle.request.method == 'GET':
             # Just return what we currenty have cached as the route spec
-            data = common.CURRENT_STATE['route_spec']
+            data = CURRENT_STATE['route_spec']
             if not data:
                 bottle.response.status = 404
                 msg = "Route spec not found!"
@@ -173,10 +173,16 @@ class Http(common.WatcherPlugin):
 
     """
     def start(self):
-        global _Q_ROUTE_SPEC
-        _Q_ROUTE_SPEC = Queue.Queue()
+        """
+        Start the HTTP change monitoring thread.
 
-        logging.info("HTTP watcher plugin: "
+        """
+        # Store reference to message queue in module global variable, so that
+        # our Bottla app handler functions have easy access to it.
+        global _Q_ROUTE_SPEC
+        _Q_ROUTE_SPEC = self.q_route_spec
+
+        logging.info("Http watcher plugin: "
                      "Starting to watch for route spec on '%s:%s'..." %
                      (self.conf['addr'], self.conf['port']))
 
@@ -191,16 +197,14 @@ class Http(common.WatcherPlugin):
         self.http_thread.daemon = True
         self.http_thread.start()
 
-        # Return the thread and the two queues to the caller
-        return _Q_ROUTE_SPEC
-
     def stop(self):
+        """
+        Stop the config change monitoring thread.
+
+        """
         self.my_server.stop()
         self.http_thread.join()
-        logging.info("HTTP watcher plugin: Stopped")
-
-    def get_route_spec_queue(self):
-        return _Q_ROUTE_SPEC
+        logging.info("Http watcher plugin: Stopped")
 
     @classmethod
     def add_arguments(cls, parser):
@@ -213,7 +217,7 @@ class Http(common.WatcherPlugin):
                             default="33289", type=int,
                             help="port to listen on for commands "
                                  "(only in http mode, default: 33289)")
-        return [ "addr", "port" ]
+        return ["addr", "port"]
 
     @classmethod
     def check_arguments(cls, conf):

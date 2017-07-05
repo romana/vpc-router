@@ -25,11 +25,10 @@ import logging
 import Queue
 import time
 
-from vpcrouter import monitor
-from vpcrouter import vpc
-from vpcrouter import errors
-
-from . import common
+from vpcrouter              import monitor
+from vpcrouter              import vpc
+from vpcrouter              import errors
+from vpcrouter.currentstate import CURRENT_STATE
 
 
 def _read_last_msg_from_queue(q):
@@ -110,11 +109,11 @@ def _event_monitor_loop(region_name, vpc_id,
 
             if failed_ips:
                 # Store the failed IPs in the shared state
-                common.CURRENT_STATE['failed_ips'] = failed_ips
+                CURRENT_STATE['failed_ips'] = failed_ips
 
             if new_route_spec:
                 # Store the new route spec in the shared state
-                common.CURRENT_STATE['route_spec'] = new_route_spec
+                CURRENT_STATE['route_spec'] = new_route_spec
                 current_route_spec = new_route_spec
                 # Need to communicate a new set of IPs to the health
                 # monitoring thread, in case the list changed. The list of
@@ -188,9 +187,9 @@ def _start_working_threads(conf, sleep_time):
                                  plugin_name, str(e))
 
     # No matter what the chosen plugin to watch for config updates: We get a
-    # queue and a thread-handle back. All watcher plugins provide the same
-    # interface. They all implement a start() method, which returns those
-    # things.
+    # plugin-handle back. This gives us a start(), stop() and
+    # get_route_spec_queue() function. All watcher plugins provide the same
+    # interface.
     plugin = plugin_class(conf)
     plugin.start()
 
