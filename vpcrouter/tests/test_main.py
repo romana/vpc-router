@@ -65,7 +65,8 @@ class TestArgs(unittest.TestCase):
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
                  'file': None, 'vpc_id': '123', 'logfile': 'foo',
-                 'port': 33289, 'region_name': 'ap-southeast-2'}},
+                 'port': 33289, 'region_name': 'ap-southeast-2',
+                 'hosts' : None, 'cidr' : None}},
             {"args" : ['-l', 'foo', '-v', '123', '-m', 'foo'],
              "exc" : ArgsError, "out" : "Unknown mode 'foo'"},
             {"args" : ['-l', 'foo', '-v', '123', '-m', 'configfile'],
