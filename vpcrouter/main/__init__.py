@@ -26,17 +26,23 @@ import sys
 
 from vpcrouter.errors  import ArgsError, PluginError
 
+from vpcrouter.vpc     import get_ec2_meta_data
 from vpcrouter         import watcher
 from vpcrouter.watcher import plugins
 
 
-def _setup_arg_parser(plugins_class_lookup):
+def _setup_arg_parser(plugins_class_lookup, vpc_id=None, region_name=None):
     """
     Configure and return the argument parser for the command line options.
 
     If plugins_class_lookup is provided then call the add_arguments() call back
     of the plugin classes in that dict, in order to add plugin specific
     options.
+
+    Some required parameters can be made non-mandatory and can have defaults
+    passed in. Specifically, the vpc_id and region_name, which we will extract
+    from the EC2 meta data, if it's available. Note that the automatically
+    discovered values can still be overridden on the command line.
 
     Return parser and the conf-name of all the arguments that have been added.
 
@@ -51,9 +57,11 @@ def _setup_arg_parser(plugins_class_lookup):
                         help="full path name for the logfile "
                              "(default: /tmp/vpc-router.log"),
     parser.add_argument('-r', '--region', dest="region_name",
-                        default="ap-southeast-2",
+                        required=region_name is None, default=region_name,
                         help="the AWS region of the VPC")
-    parser.add_argument('-v', '--vpc', dest="vpc_id", required=True,
+    parser.add_argument('-v', '--vpc', dest="vpc_id",
+                        required=vpc_id is None,
+                        default=vpc_id,
                         help="the ID of the VPC in which to operate")
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="available modes: %s" % mode_names)
@@ -70,7 +78,7 @@ def _setup_arg_parser(plugins_class_lookup):
     return parser, arglist
 
 
-def parse_args(args_list, plugins_class_lookup=None):
+def parse_args(args_list, plugins_class_lookup=None, **kwargs):
     """
     Parse command line arguments and return relevant values in a dict.
 
@@ -86,8 +94,9 @@ def parse_args(args_list, plugins_class_lookup=None):
 
     """
     conf = {}
+
     # Setting up the command line argument parser
-    parser, arglist = _setup_arg_parser(plugins_class_lookup)
+    parser, arglist = _setup_arg_parser(plugins_class_lookup, **kwargs)
 
     args = parser.parse_args(args_list)
 
@@ -176,7 +185,15 @@ def main():
     #   capitalized.
     try:
         plugins_class_lookup = load_plugins()
-        conf = parse_args(sys.argv[1:], plugins_class_lookup)
+
+        # If we are on an EC2 instance then some data is already available to
+        # us. The return data items in the meta data match some of the command
+        # line arguments, so we can pass this through to the parser function to
+        # provide defaults for those parameters. Specifically: VPC-ID and
+        # region name.
+        meta_data = get_ec2_meta_data()
+
+        conf = parse_args(sys.argv[1:], plugins_class_lookup, **meta_data)
         setup_logging(conf)
         try:
             logging.info("*** Starting vpc-router in %s mode ***" %
