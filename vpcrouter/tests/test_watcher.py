@@ -116,6 +116,16 @@ class TestRouteSpec(unittest.TestCase):
                 "res" : "IDENT"
             },
             {
+                "inp" : {
+                            "10.1.0.0/16" : ["1.1.1.1", "2.2.2.2", "2.2.2.2"],
+                            "10.2.0.0/16" : ["3.3.3.3"]
+                        },
+                "res" : {
+                            "10.1.0.0/16" : ["1.1.1.1", "2.2.2.2"],
+                            "10.2.0.0/16" : ["3.3.3.3"]
+                        },
+            },
+            {
                 # malformed list of IPs
                 "inp" : {
                             "10.1.0.0/16" : "Foo",
@@ -141,9 +151,14 @@ class TestRouteSpec(unittest.TestCase):
                 self.assertRaises(ValueError,
                                   watcher.common.parse_route_spec_config,
                                   test_data['inp'])
-            else:  # if output should be identical
+            else:
+                if test_data['res'] == 'IDENT':
+                    expected_out = test_data['inp']
+                else:
+                    expected_out = test_data['res']
+
                 res = watcher.common.parse_route_spec_config(test_data['inp'])
-                self.assertEqual(res, test_data['inp'])
+                self.assertEqual(expected_out, res)
 
 
 class TestWatcherConfigfile(unittest.TestCase):

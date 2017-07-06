@@ -117,6 +117,8 @@ def parse_route_spec_config(data):
     Returns the validated route config. This validation is performed on any
     route-spec pushed out by the config watcher plugin.
 
+    Duplicate hosts in the host lists are removed.
+
     Raises ValueError exception in case of problems.
 
     """
@@ -128,8 +130,11 @@ def parse_route_spec_config(data):
             utils.ip_check(k, netmask_expected=True)
             if type(v) is not list:
                 raise ValueError("Expect list of IPs as values in dict")
-            for ip in v:
+            hosts = set(v)   # remove duplicates
+            for ip in hosts:
                 utils.ip_check(ip)
+            clean_host_list = sorted(list(hosts))
+            data[k] = clean_host_list
 
     except ArgsError as e:
         raise ValueError(e.message)
