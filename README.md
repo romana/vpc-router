@@ -49,16 +49,17 @@ While vpc-router was specifically designed for use with Romana and to take
 advantage of its topology aware IPAM in these Kubernetes deployment scenarios,
 it does not depend on either project and can also be used stand-alone.
 
-## Installation
+## Installation and running
 
 You can either run vpc-router out of the source directory, or perform a full
-install.
+install, it can run outside of the VPC or within, on a cluster node or not.
 
 ### Run vpc-router out of the source directory
 
-After downloading the code, create a virtual environment, activate it and
-install the required libraries. You can then use the `vpcrouter-runner.py`
-helper script to run vpc-router without a full install:
+Just to get you started, try this: After downloading the code, create a virtual
+environment, activate it and install the required libraries. You can then use
+the `vpcrouter-runner.py` helper script to run vpc-router without a full
+install:
 
     $ git clone git@github.com:paninetworks/vpc-router.git
     $ virtualenv vpcrouter
@@ -67,15 +68,16 @@ helper script to run vpc-router without a full install:
     $ pip install -r requirements/deploy.txt
     $ ./vpcrouter-runner.py .....
 
-### Perform a full install
+This is suitable for a first try or if you wish to develop and
+[contribute](#contributing) to vpc-router.
 
-After downloading the code, run the `setup.py` script, which will put vpcrouter
-into your path:
+### Deploying in production environment
 
-    $ git clone git@github.com:paninetworks/vpc-router.git
-    $ cd vpc-router
-    $ python setup.py install
-    $ vpcrouter .......
+Please see our documentation on [how to deploy vpc-router in
+production](DEPLOY.md), which covers issues such as:
+
+* Performing a proper installation
+* IaM permissions for running on EC2 instances
 
 ## Contributing
 
@@ -145,8 +147,10 @@ The used options are:
 * `-m configfile` tells vpc-router to take config changes from a specified route
   spec file.
 * `-f` specifies the name of the route spec config file.
-* `-r` specifies the AWS region to which vpc-router should connect.
+* `-r` specifies the AWS region to which vpc-router should connect. Note: This
+can be omitted if vpc-router is run on an instance in the region.
 * `-v` specifies the VPC for which vpc-router should perform route updates.
+Note: This can be omitted if vpc-router is run on an instance within the VPC.
 
 In 'configfile' mode the `-f` option must be used to specify the route spec
 config file. It must exist when the server is started. The server then
@@ -165,8 +169,10 @@ The used options are:
 
 * `-m http` tells vpc-router to start listening on a certain address and port
 for HTTP POST requests containing new route specs.
-* `-r` specifies the AWS region to which vpc-router should connect.
+* `-r` specifies the AWS region to which vpc-router should connect. Note: This
+can be omitted if vpc-router is run on an instance in the region.
 * `-v` specifies the VPC for which vpc-router should perform route updates.
+Note: This can be omitted if vpc-router is run on an instance within the VPC.
 
 In 'http' mode, vpc-router by default uses port 33289 and listens on localhost.
 However, you can use the `-p` (port) and `-a` ('address') options to specify a
