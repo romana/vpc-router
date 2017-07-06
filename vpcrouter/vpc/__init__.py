@@ -23,9 +23,34 @@ import logging
 import random
 
 import boto.vpc
+import boto.utils
 
 from vpcrouter.errors       import VpcRouteSetError
 from vpcrouter.currentstate import CURRENT_STATE
+
+
+def get_ec2_meta_data():
+    """
+    Get meta data about ourselves, if we are on an EC2 instance.
+
+    In particular, this returns the VPC ID and region of this instance.
+
+    If we are not on an EC2 instance it returns an empty dict.
+
+    """
+    # The timeout is just for the connection attempt, but between retries there
+    # is an exponential back off in seconds. So, too many retries and it can
+    # possibly block for a very long time here. Main contributor to waiting
+    # time here is the number of retries, rather than the timeout time.
+    try:
+        md     = boto.utils.get_instance_metadata(timeout=2, num_retries=2)
+        vpc_id = md['network']['interfaces']['macs'].values()[0]['vpc-id']
+        region = md['placement']['availability-zone'][:-1]
+        return {"vpc_id" : vpc_id, "region_name" : region}
+    except:
+        # Any problem while getting the meta data? Assume we are not on an EC2
+        # instance.
+        return {}
 
 
 def connect_to_region(region_name):
