@@ -31,7 +31,7 @@ from vpcrouter         import watcher
 from vpcrouter.watcher import plugins
 
 
-def _setup_arg_parser(plugins_class_lookup, vpc_id=None, region_name=None):
+def _setup_arg_parser(plugins_class_lookup):
     """
     Configure and return the argument parser for the command line options.
 
@@ -39,10 +39,10 @@ def _setup_arg_parser(plugins_class_lookup, vpc_id=None, region_name=None):
     of the plugin classes in that dict, in order to add plugin specific
     options.
 
-    Some required parameters can be made non-mandatory and can have defaults
-    passed in. Specifically, the vpc_id and region_name, which we will extract
-    from the EC2 meta data, if it's available. Note that the automatically
-    discovered values can still be overridden on the command line.
+    Some parameters are required (vpc and region, for example), but we may be
+    able to discover them automatically, later on. Therefore, we allow them to
+    remain unset on the command line. We will have to complain about those
+    parameters missing later on, if the auto discovery fails.
 
     Return parser and the conf-name of all the arguments that have been added.
 
@@ -53,15 +53,15 @@ def _setup_arg_parser(plugins_class_lookup, vpc_id=None, region_name=None):
                     description="VPC router: Manage routes in VPC route table")
     # General arguments
     parser.add_argument('-l', '--logfile', dest='logfile',
-                        default='/tmp/vpc-router.log',
-                        help="full path name for the logfile "
-                             "(default: /tmp/vpc-router.log"),
+                        default='-',
+                        help="full path name for the logfile, "
+                             "or '-' for logging to stdout "
+                             "(default: '-' (logging to stdout))"),
     parser.add_argument('-r', '--region', dest="region_name",
-                        required=region_name is None, default=region_name,
+                        required=False, default=None,
                         help="the AWS region of the VPC")
     parser.add_argument('-v', '--vpc', dest="vpc_id",
-                        required=vpc_id is None,
-                        default=vpc_id,
+                        required=False, default=None,
                         help="the ID of the VPC in which to operate")
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="available modes: %s" % mode_names)
@@ -78,7 +78,7 @@ def _setup_arg_parser(plugins_class_lookup, vpc_id=None, region_name=None):
     return parser, arglist
 
 
-def parse_args(args_list, plugins_class_lookup=None, **kwargs):
+def parse_args(args_list, plugins_class_lookup=None):
     """
     Parse command line arguments and return relevant values in a dict.
 
@@ -96,7 +96,7 @@ def parse_args(args_list, plugins_class_lookup=None, **kwargs):
     conf = {}
 
     # Setting up the command line argument parser
-    parser, arglist = _setup_arg_parser(plugins_class_lookup, **kwargs)
+    parser, arglist = _setup_arg_parser(plugins_class_lookup)
 
     args = parser.parse_args(args_list)
 
@@ -129,13 +129,16 @@ def setup_logging(conf):
     else:
         level = logging.INFO
 
-    logging.basicConfig(filename=conf['logfile'], level=level,
+    fname = conf['logfile'] if conf['logfile'] != "-" else None
+
+    logging.basicConfig(filename=fname, level=level,
                         format='%(asctime)s - %(levelname)-8s - '
                                '%(threadName)-11s - %(message)s')
-    # Don't want to see all the debug messages from BOTO and watchdog
-    logging.getLogger('boto').setLevel(logging.INFO)
+
+    # Don't want to see all the messages from BOTO and watchdog
+    logging.getLogger('boto').setLevel(logging.CRITICAL)
     logging.getLogger('watchdog.observers.inotify_buffer'). \
-                                                setLevel(logging.INFO)
+                                                setLevel(logging.CRITICAL)
 
 
 def load_plugins():
@@ -186,15 +189,23 @@ def main():
     try:
         plugins_class_lookup = load_plugins()
 
+        conf = parse_args(sys.argv[1:], plugins_class_lookup)
+        setup_logging(conf)
+
         # If we are on an EC2 instance then some data is already available to
         # us. The return data items in the meta data match some of the command
         # line arguments, so we can pass this through to the parser function to
         # provide defaults for those parameters. Specifically: VPC-ID and
         # region name.
-        meta_data = get_ec2_meta_data()
+        if not conf['vpc_id'] or not conf['region_name']:
+            meta_data = get_ec2_meta_data()
+            if 'vpc_id' not in meta_data or 'region_name' not in meta_data:
+                logging.error("VPC and region were not explicitly specified "
+                              "and can't be auto-discovered.")
+                sys.exit(1)
+            else:
+                conf.update(meta_data)
 
-        conf = parse_args(sys.argv[1:], plugins_class_lookup, **meta_data)
-        setup_logging(conf)
         try:
             logging.info("*** Starting vpc-router in %s mode ***" %
                          conf['mode'])
