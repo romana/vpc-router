@@ -6,4 +6,3 @@ RUN python setup.py install
 EXPOSE 33289
 VOLUME ["/conf"]
 ENTRYPOINT ["vpcrouter", "-l", "-", "-a", "0.0.0.0"]
-
