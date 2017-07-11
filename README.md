@@ -205,8 +205,6 @@ this will be made configurable.
 
 ## TODO
 
-* When running on an EC2 instance and no VPC or region is specified,
-  auto-detect the VPC and region of that instance.
 * Support for BGP listener: Allow vpc-router to act as BGP peer and receive
   route announcements via BGP.
 * Access etcd for routing spec.
