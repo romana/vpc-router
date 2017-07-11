@@ -21,23 +21,20 @@ limitations under the License.
 import argparse
 import importlib
 import logging
-import pkgutil
 import sys
 
 from vpcrouter.errors  import ArgsError, PluginError
 
 from vpcrouter.vpc     import get_ec2_meta_data
 from vpcrouter         import watcher
-from vpcrouter.watcher import plugins
 
 
-def _setup_arg_parser(plugins_class_lookup):
+def _setup_arg_parser(plugin_class):
     """
     Configure and return the argument parser for the command line options.
 
-    If plugins_class_lookup is provided then call the add_arguments() call back
-    of the plugin classes in that dict, in order to add plugin specific
-    options.
+    If a plugin_class is provided then call the add_arguments() call back of
+    the plugin class, in order to add plugin specific options.
 
     Some parameters are required (vpc and region, for example), but we may be
     able to discover them automatically, later on. Therefore, we allow them to
@@ -48,7 +45,6 @@ def _setup_arg_parser(plugins_class_lookup):
 
     """
 
-    mode_names = ", ".join("'%s'" % pn for pn in plugins_class_lookup.keys())
     parser = argparse.ArgumentParser(
                     description="VPC router: Manage routes in VPC route table")
     # General arguments
@@ -64,29 +60,27 @@ def _setup_arg_parser(plugins_class_lookup):
                         required=False, default=None,
                         help="the ID of the VPC in which to operate")
     parser.add_argument('-m', '--mode', dest='mode', required=True,
-                        help="available modes: %s" % mode_names)
+                        help="name of the watcher plugin")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
     arglist = ["logfile", "region_name", "vpc_id", "mode", "verbose"]
 
     # Let each watcher plugin add its own arguments
-    if plugins_class_lookup:
-        for plugin_class in plugins_class_lookup.values():
-            arglist.extend(plugin_class.add_arguments(parser))
+    if plugin_class:
+        arglist.extend(plugin_class.add_arguments(parser))
 
     return parser, arglist
 
 
-def parse_args(args_list, plugins_class_lookup=None):
+def parse_args(args_list, plugin_class=None):
     """
     Parse command line arguments and return relevant values in a dict.
 
     Also perform basic sanity checking on some arguments.
 
-    If a dict of watcher plugin classes has been parsed in, callbacks into
-    those classes will be used to extend the arguments with plugin-specific
-    options.
+    If a watcher plugin class has been passed in, a callback into that class
+    will be used to extend the arguments with plugin-specific options.
 
     Likewise, the sanity checking will then also invoke a callback into the
     plugin, chosen by the -m (mode) option, in order to perform a sanity check
@@ -96,23 +90,22 @@ def parse_args(args_list, plugins_class_lookup=None):
     conf = {}
 
     # Setting up the command line argument parser
-    parser, arglist = _setup_arg_parser(plugins_class_lookup)
+    parser, arglist = _setup_arg_parser(plugin_class)
 
     args = parser.parse_args(args_list)
 
+    # Transcribe argument values into our own dict
     for argname in arglist:
         conf[argname] = getattr(args, argname)
 
-    # Sanity checking of arguments.
-    plugin_class = plugins_class_lookup.get(conf['mode'])
-    if not plugin_class:
-        raise ArgsError("Unknown mode '%s'" % conf['mode'])
-    try:
-        # Let the watcher plugin class check its own arguments
-        plugin_class.check_arguments(conf)
-    except ArgsError as e:
-        parser.print_help()
-        raise e
+    # Sanity checking of arguments. Let the watcher plugin class check its own
+    # arguments.
+    if plugin_class is not None:
+        try:
+            plugin_class.check_arguments(conf)
+        except ArgsError as e:
+            parser.print_help()
+            raise e
 
     return conf
 
@@ -141,37 +134,50 @@ def setup_logging(conf):
                                                 setLevel(logging.CRITICAL)
 
 
-def load_plugins():
+def load_plugin(mode_name):
     """
-    Load the watcher plugins.
+    Load a watcher plugin.
 
-    Return lookup dictionary: Key is module name, value is the plugin class.
+    Return the plugin class.
 
     """
-    plugins_class_lookup = {}
-    # Iterate over all the plugin modules we can find.
-    for _, modname, ispkg in pkgutil.iter_modules(plugins.__path__):
-        try:
-            plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % modname
-            plugin_mod        = importlib.import_module(plugin_mod_name)
-            plugin_class_name = modname.capitalize()
-            plugin_class      = getattr(plugin_mod, plugin_class_name)
-        except ImportError as e:
-            raise PluginError("Cannot load '%s'" % plugin_mod_name)
-        except AttributeError:
-            raise PluginError("Cannot find plugin class '%s' in "
-                              "plugin '%s'" %
-                              (plugin_class_name, plugin_mod_name))
-        except Exception as e:
-            raise PluginError("Error while loading plugin '%s': %s" %
-                              plugin_mod_name, str(e))
+    try:
+        plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % mode_name
+        plugin_mod        = importlib.import_module(plugin_mod_name)
+        plugin_class_name = mode_name.capitalize()
+        plugin_class      = getattr(plugin_mod, plugin_class_name)
+        return plugin_class
+    except ImportError as e:
+        raise PluginError("Cannot load '%s'" % plugin_mod_name)
+    except AttributeError:
+        raise PluginError("Cannot find plugin class '%s' in "
+                          "plugin '%s'" %
+                          (plugin_class_name, plugin_mod_name))
+    except Exception as e:
+        raise PluginError("Error while loading plugin '%s': %s" %
+                          (plugin_mod_name, str(e)))
 
-        plugins_class_lookup[modname] = plugin_class
 
-    if not plugins_class_lookup:
-        raise PluginError("Could not load any plugins")
+def _get_mode_name(args):
+    """
+    Quick and dirty extraction of mode name from argument list.
 
-    return plugins_class_lookup
+    Need to do this before the proper arg-parser is setup, since the
+    mode/plugin may add arguments on its own, which we need for the parser
+    setup.
+
+    """
+    mode_name = None            # No -m / --mode was specified
+    for i, a in enumerate(args):
+        if a in ["-m", "--mode"]:
+            # At least make sure that an actual name was specified
+            if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                mode_name = args[i + 1]
+            else:
+                mode_name = ""  # Invalid mode was specified
+            break
+
+    return mode_name
 
 
 def main():
@@ -187,9 +193,20 @@ def main():
     # - The plugin class has to have the same name as the plugin itself, only
     #   capitalized.
     try:
-        plugins_class_lookup = load_plugins()
+        # A bit of a hack: We want to load the plugin (specified via the mode
+        # parameter) in order to add its arguments to the argument parser. But
+        # this means we first need to look into the arguments to find it ...
+        # before looking at the arguments.  So we first perform a manual search
+        # through the argument list for this purpose only.
+        args = sys.argv[1:]
+        mode_name = _get_mode_name(args)
 
-        conf = parse_args(sys.argv[1:], plugins_class_lookup)
+        if mode_name:
+            plugin_class = load_plugin(mode_name)
+        else:
+            plugin_class = None
+
+        conf = parse_args(sys.argv[1:], plugin_class)
         setup_logging(conf)
 
         # If we are on an EC2 instance then some data is already available to

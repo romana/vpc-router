@@ -63,35 +63,39 @@ class TestArgs(unittest.TestCase):
             {"args" : ['-l', 'foo', '-v', '123'],
              "exc" : SystemExit, "out" : "2"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http'],
-             "exc" : None,
+             "exc" : None, "plugin" : "http",
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
-                 'file': None, 'vpc_id': '123', 'logfile': 'foo',
-                 'port': 33289, 'region_name': 'foo',
-                 'hosts' : None, 'cidr' : None}},
-            {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'foo'],
-             "exc" : ArgsError, "out" : "Unknown mode 'foo'"},
+                 'vpc_id': '123', 'logfile': 'foo',
+                 'port': 33289, 'region_name': 'foo'}},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile'],
-             "exc" : ArgsError,
+             "exc" : ArgsError, "plugin" : "configfile",
              "out" : "A config file needs to be specified (-f)."},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile',
                        '-f', "/_does_not_exists"],
-             "exc" : ArgsError,
+             "exc" : ArgsError, "plugin" : "configfile",
              "out" : "Cannot open config file"},
+            {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
+                       '-m', 'configfile', '-p', '99999'],
+             "exc" : SystemExit, "plugin" : "configfile",
+             "out" : "2"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
                        '-p', '99999'],
-             "exc" : ArgsError,
+             "exc" : ArgsError, "plugin" : "http",
              "out" : "Invalid listen port"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
                        '-a', '999.9'],
-             "exc" : ArgsError,
+             "exc" : ArgsError, "plugin" : "http",
              "out" : "Not a valid IP address"}
         ]
 
-        pl = main.load_plugins()
         for i in inp:
+            if 'plugin' in i:
+                plc = main.load_plugin(i['plugin'])
+            else:
+                plc = None
             args = i['args']
             exc  = i['exc']
             out  = i.get('out', "")
@@ -100,10 +104,10 @@ class TestArgs(unittest.TestCase):
             sys.stderr = StringIO()
             if exc:
                 with self.assertRaises(exc) as ex:
-                    main.parse_args(args, pl)
+                    main.parse_args(args, plc)
                 self.assertTrue(out in str(ex.exception.message))
             else:
-                conf_is = main.parse_args(args, pl)
+                conf_is = main.parse_args(args, plc)
                 output  = sys.stderr.getvalue().strip()
                 ll      = self.get_last_line(output)
                 if not out:
