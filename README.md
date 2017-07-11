@@ -78,6 +78,7 @@ production](DEPLOY.md), which covers issues such as:
 
 * Performing a proper installation
 * IaM permissions for running on EC2 instances
+* Running vpc-router in a container
 
 ## Contributing
 
