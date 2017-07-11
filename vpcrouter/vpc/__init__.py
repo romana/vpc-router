@@ -78,7 +78,7 @@ def get_vpc_overview(con, vpc_id, region_name):
     """
     logging.debug("Retrieving information for VPC '%s'" % vpc_id)
     d = {}
-    d['zones']  = con.get_all_zones()
+    d['zones'] = con.get_all_zones()
 
     # Find the specified VPC, or just use the first one
     all_vpcs    = con.get_all_vpcs()
