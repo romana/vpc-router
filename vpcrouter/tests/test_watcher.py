@@ -31,6 +31,7 @@ import unittest
 from testfixtures       import LogCapture
 from watchdog.observers import Observer
 
+from vpcrouter import main
 from vpcrouter import monitor
 from vpcrouter import watcher
 from vpcrouter import vpc
@@ -172,6 +173,8 @@ class TestWatcherConfigfile(unittest.TestCase):
             "vpc_id"      : "dummy-vpc",
             "mode"        : "configfile"
         }
+        self.plugin_class = main.load_plugin("configfile")
+
         # The watcher thread needs to have a config file available right at the
         # start, even if there's nothing in it
         self.write_config({})
@@ -231,7 +234,8 @@ class TestWatcherConfigfile(unittest.TestCase):
 
     def test_watcher_thread_no_config(self):
         os.remove(self.abs_fname)
-        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        self.tinfo = watcher._start_working_threads(
+                                    self.conf, self.plugin_class, 2)
         time.sleep(0.5)
 
         # Config file doesn't exist yet, so we should get an error.
@@ -247,7 +251,8 @@ class TestWatcherConfigfile(unittest.TestCase):
         watcher._stop_working_threads(self.tinfo)
 
     def test_watcher_thread_wrong_config(self):
-        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        self.tinfo = watcher._start_working_threads(
+                                    self.conf, self.plugin_class, 2)
         time.sleep(1.2)
 
         inp = "MALFORMED"
@@ -264,7 +269,8 @@ class TestWatcherConfigfile(unittest.TestCase):
         watcher._stop_working_threads(self.tinfo)
 
     def test_watcher_thread(self):
-        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        self.tinfo = watcher._start_working_threads(
+                                    self.conf, self.plugin_class, 2)
         time.sleep(2)
         self.lc.check(
              self.start_thread_log_tuple(),
@@ -353,6 +359,7 @@ class TestWatcherHttp(TestWatcherConfigfile):
             "vpc_id"      : "dummy-vpc",
             "mode"        : "http"
         }
+        self.plugin_class = main.load_plugin("http")
         # Changing the listen port number of the server for each test, since we
         # can't reuse the socket addresses in such rapid succession
         PORT += 1
@@ -374,7 +381,8 @@ class TestWatcherHttp(TestWatcherConfigfile):
         return ('root', 'INFO', "New route spec posted")
 
     def test_watcher_thread_no_config(self):
-        self.tinfo = watcher._start_working_threads(self.conf, 2)
+        self.tinfo = watcher._start_working_threads(
+                                self.conf, self.plugin_class, 2)
         time.sleep(0.5)
 
         # Config file doesn't exist yet, so we should get an error.

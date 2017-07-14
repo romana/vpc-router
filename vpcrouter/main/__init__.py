@@ -138,13 +138,26 @@ def load_plugin(mode_name):
     """
     Load a watcher plugin.
 
+    Supports loading of plugins that are part of the vpcrouter, as well as
+    external plugins: If the mode/plugin name has a dotted notation then it
+    assumes it's an external plugin and the dotted notation is the complete
+    import path. If it's just a single word then it looks for the plugin in the
+    vpcrouter.watcher.plugins.* module.
+
     Return the plugin class.
 
     """
     try:
-        plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % mode_name
+        if "." in mode_name:
+            # Assume external plugin, full path
+            plugin_mod_name   = mode_name
+            plugin_class_name = mode_name.split(".")[-1].capitalize()
+        else:
+            # One of the built-in plugins
+            plugin_mod_name   = "vpcrouter.watcher.plugins.%s" % mode_name
+            plugin_class_name = mode_name.capitalize()
+
         plugin_mod        = importlib.import_module(plugin_mod_name)
-        plugin_class_name = mode_name.capitalize()
         plugin_class      = getattr(plugin_mod, plugin_class_name)
         return plugin_class
     except ImportError as e:
@@ -226,7 +239,7 @@ def main():
         try:
             logging.info("*** Starting vpc-router in %s mode ***" %
                          conf['mode'])
-            watcher.start_watcher(conf)
+            watcher.start_watcher(conf, plugin_class)
             logging.info("*** Stopping vpc-router ***")
         except Exception as e:
             import traceback
