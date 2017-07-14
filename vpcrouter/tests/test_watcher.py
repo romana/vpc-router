@@ -363,7 +363,7 @@ class TestWatcherHttp(TestWatcherConfigfile):
     def write_config(self, data):
         url = "http://%s:%s/route_spec" % \
                             (self.conf['addr'], self.conf['port'])
-        requests.post(url, json=data)
+        requests.post(url, data=json.dumps(data))
 
     def start_thread_log_tuple(self):
         return ('root', 'INFO',

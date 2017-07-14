@@ -89,8 +89,10 @@ class WatcherPlugin(object):
         Callback to add command line options for this plugin to the argparse
         parser.
 
+        Return list with names of new arguments.
+
         """
-        raise NotImplementedError()
+        return []
 
     @classmethod
     def check_arguments(cls, conf):
@@ -98,8 +100,10 @@ class WatcherPlugin(object):
         Callback to perform sanity checking for the plugin's specific
         parameters.
 
+        Should raise exception in case of error.
+
         """
-        raise NotImplementedError()
+        return
 
 
 def parse_route_spec_config(data):
