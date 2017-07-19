@@ -208,7 +208,10 @@ class Http(common.WatcherPlugin):
 
     @classmethod
     def add_arguments(cls, parser):
-        # Arguments for the http mode
+        """
+        Add arguments for the http mode to the argument parser.
+
+        """
         parser.add_argument('-a', '--address', dest="addr",
                             default="localhost",
                             help="address to listen on for commands "
@@ -222,7 +225,7 @@ class Http(common.WatcherPlugin):
     @classmethod
     def check_arguments(cls, conf):
         """
-        Sanity check options needed for http mode.
+        Sanity check arguments needed for http mode.
 
         """
         if not 0 < conf['port'] < 65535:
