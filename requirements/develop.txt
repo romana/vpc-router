@@ -6,3 +6,4 @@ moto==1.0.1
 requests==2.1.0
 flake8==3.3.0
 pypandoc==1.4
+testfixtures==5.1.1
