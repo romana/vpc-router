@@ -20,7 +20,9 @@ download the latest version:
     $ docker pull quay.io/romana/vpcrouter
 
 If you prefer to build your own container, a [Dockerfile](Dockerfile) has been
-provided with the software.
+provided with the software. To build your own container, use:
+
+    $ sudo docker build -t yourname/vpcrouter:1.3.2 .
 
 A few command line arguments are set by default in the container, while
 others still need to be specified when you run the container. Specifically, the
@@ -33,9 +35,10 @@ which provide a mapping for the directory containing the config file:
          quay.io/romana/vpcrouter -m configfile -f /conf/<conffile-name>
 
 To run it in HTTP mode, use the following, which exposes the port 33289 on
-which vpc-router listens for requests:
+which vpc-router listens for requests. Also, a different listen address needs
+to be specified:
 
-    $ docker run -p 33289:33289 quay.io/romana/vpcrouter -m http
+    $ docker run -p 33289:33289 quay.io/romana/vpcrouter -m http -a 0.0.0.0
 
 Note that in the container, vpc-router logs to stdout, which tends to be the
 preferred log destination in containerized environments.
