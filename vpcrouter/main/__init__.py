@@ -182,12 +182,17 @@ def _get_mode_name(args):
     """
     mode_name = None            # No -m / --mode was specified
     for i, a in enumerate(args):
-        if a in ["-m", "--mode"]:
+        # Long form may use "--mode=foo", so need to split on '='
+        elems = a.split("=", 1)
+        if elems[0] in ["-m", "--mode"]:
             # At least make sure that an actual name was specified
-            if i + 1 < len(args) and not args[i + 1].startswith("-"):
-                mode_name = args[i + 1]
+            if len(elems) == 1:
+                if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                    mode_name = args[i + 1]
+                else:
+                    mode_name = ""  # Invalid mode was specified
             else:
-                mode_name = ""  # Invalid mode was specified
+                mode_name = elems[1]
             break
 
     return mode_name
