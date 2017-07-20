@@ -22,7 +22,7 @@ download the latest version:
 If you prefer to build your own container, a [Dockerfile](Dockerfile) has been
 provided with the software. To build your own container, use:
 
-    $ sudo docker build -t yourname/vpcrouter:1.3.2 .
+    $ docker build -t yourname/vpcrouter:1.3.2 .
 
 A few command line arguments are set by default in the container, while
 others still need to be specified when you run the container. Specifically, the
