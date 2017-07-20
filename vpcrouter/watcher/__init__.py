@@ -148,15 +148,16 @@ def _event_monitor_loop(region_name, vpc_id,
 def _start_working_threads(conf, plugin_class, sleep_time):
     """
     Start the working threads:
+
     - Health monitor
-    - Config change monitor (either file watch or http)
+    - Config change monitor (the watcher plugin)
 
     Return dict with thread info and the message queues that were created for
     them.
 
     There are different means of feeding updated route spec configs to the
-    vpc-router. For example a config file, or by POSTing configs via HTTP. The
-    method is chosen via the "mode" command line argument.
+    vpc-router. These are implemented in the watcher plugins. The method/plugin
+    is chosen via the "mode" command line argument.
 
     Independent of what mode is chosen, the specific config-watcher thread
     always uses the same means of communicating updated configs back: A message
@@ -175,10 +176,10 @@ def _start_working_threads(conf, plugin_class, sleep_time):
     plugin.start()
 
     return {
-               "monitor_thread"  : monitor_thread,
-               "q_monitor_ips"   : q_monitor_ips,
-               "q_failed_ips"    : q_failed_ips,
-               "watcher_plugin"  : plugin
+               "monitor_thread" : monitor_thread,
+               "q_monitor_ips"  : q_monitor_ips,
+               "q_failed_ips"   : q_failed_ips,
+               "watcher_plugin" : plugin
            }
 
 
@@ -207,14 +208,14 @@ def start_watcher(conf, plugin_class, iterations=None, sleep_time=1):
     routes as necessary. If failed hosts are reported, routes are also updated
     as needed.
 
-    This function starts three threads:
+    This function starts a few working threads:
 
-    - "ConfMon":   A file-change observer on the route spec file.
-    - "HealthMon": Monitors health of instances mentioned in the route spec.
-    - "HttpSrv":   A small HTTP server providing status information.
+    - The watcher plugin to monitor for updated route specs.
+    - A health monitor thread for instances mentioned in the route spec.
 
     It then drops into a loop to receive messages from the health monitoring
-    thread and re-process the config if any failed IPs are reported.
+    thread and watcher plugin and re-process the config if any failed IPs are
+    reported.
 
     The loop itself is in its own function to facilitate easier testing.
 
