@@ -49,6 +49,9 @@ While vpc-router was specifically designed for use with Romana and to take
 advantage of its topology aware IPAM in these Kubernetes deployment scenarios,
 it does not depend on either project and can also be used stand-alone.
 
+Plugins for integration with different environments are provided. For example,
+a [plugin to integrate with Romana](https://github.com/romana/vpcrouter-romana-plugin).
+
 ## Installation and running
 
 You can either run vpc-router out of the source directory, or perform a full
@@ -82,8 +85,8 @@ production](DEPLOY.md), which covers issues such as:
 
 ## Contributing
 
-We welcome any contributions, bug reports or feedback. Please use our [issue
-tracker](https://github.com/romana/vpc-router/issues) to file bugs or request
+We welcome any contributions, bug reports or feedback. Please use our
+[issue tracker](https://github.com/romana/vpc-router/issues) to file bugs or request
 additional features.
 
 In order to develop or extend vpc-router, please read the [developer
@@ -193,6 +196,11 @@ For example:
 
     $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route_spec" -d '{"10.55.0.0/16" : [ "10.33.20.142" ], "10.66.17.0/24" : [ "10.33.20.93", "10.33.30.22" ]}'
 
+## Mode 'romana'
+
+For integration with the [Romana project](http://romana.io/), please see the
+[vpc-router Romana plugin](https://github.com/romana/vpcrouter-romana-plugin).
+
 ## Continuous monitoring
 
 Continuos monitoring is performed for all hosts listed in the route spec. If an
@@ -207,7 +215,6 @@ this will be made configurable.
 
 * Support for BGP listener: Allow vpc-router to act as BGP peer and receive
   route announcements via BGP.
-* Access etcd for routing spec.
 * Configurable health checks.
 * Ability to use CloudWatch alerts, instead of active health checks to detect
   instance failure.

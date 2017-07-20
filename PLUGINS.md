@@ -22,7 +22,13 @@ with whatever orchestration system or application you need.
 
 ## Location, naming convention and base class
 
-The watcher plugins are located in the directory `vpcrouter/watcher/plugins/`.
+The vpc-router comes with a number of 'integrated plugins'. These do not add a
+lot of additional prerequisites and are relatively simple in their
+functionality. However, it is also possible to develop more complex plugins in
+their own repository ('external plugins'), which is discussed further below.
+
+The integrated watcher plugins - those that come standard with vpc-router -
+are located in the directory `vpcrouter/watcher/plugins/`.
 
 The `-m` option on the vpc-router command line chooses the 'mode': This is
 nothing but the name of the watcher plugin. It has to match the Python file
@@ -38,11 +44,12 @@ The plugin class' name should be the name of the plugin, capitalized.
 Therefore, the 'http' plugin provides the 'Http' class. The
 'configfile' plugin provides the 'Configfile' class, and so on.
 
-## Example
+## Example of an integrated plugin
 
 Please have a look at `vpcrouter/watcher/plugins/fixedconf.py`. This is a very
-simple, but fully functional plugin. It adds a few command line arguments to
-vpc-parser, provides sanity checking for those and is well documented.
+simple, but fully functional integrated plugin. It adds a few command line
+arguments to the vpc-router's command line parser, provides sanity checking
+for those and is well documented.
 
 Key points:
 
@@ -50,3 +57,14 @@ Key points:
 * Classname is the mode name, capitalized.
 * All the necessary functions of the `WatcherPlugin` are implemented.
 
+## Example of an external plugin
+
+Some plugins are more complex and add significant dependencies and additional
+packages. It is better to develop those as external projects, instead of
+bloating the requirements and dependencies of the base vpc-router installation.
+
+As an example, please consider the
+[vpc-router Romana plugin](https://github.com/romana/vpcrouter-romana-plugin).
+It comes with its own `setup.py`, own test cases and own requirements files.
+By perusing this repository you can see how to develop an external plugin for
+vpc-router.
