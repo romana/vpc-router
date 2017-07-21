@@ -171,6 +171,11 @@ class Http(common.WatcherPlugin):
     Start a Bottle application thread, which serves a minimal HTTP interface
     to set route specs or enquire about the status.
 
+    This plugin adds two command line arguments to vpc-router:
+
+    -a / --address: The listen address for the HTTP server.
+    -p / --port:    The listen port for the HTTP server.
+
     """
     def start(self):
         """

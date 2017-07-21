@@ -97,10 +97,14 @@ def read_route_spec_config(fname):
 
 class Configfile(common.WatcherPlugin):
     """
-    Implements the WatcherPlugin interface for the 'http' plugin.
+    Implements the WatcherPlugin interface for the 'configfile' plugin.
 
-    Start a Bottle application thread, which serves a minimal HTTP interface
-    to set route specs or enquire about the status.
+    Establishes a watcher thread, which detectes any changes to the config
+    file and re-reads it.
+
+    The plugin adds a command line argument to vpc-router:
+
+    -f / --file: The name of the config file, which should be monitored.
 
     """
     def start(self):
@@ -150,7 +154,10 @@ class Configfile(common.WatcherPlugin):
 
     @classmethod
     def add_arguments(cls, parser):
-        # Arguments for the configfile mode
+        """
+        Arguments for the configfile mode.
+
+        """
         parser.add_argument('-f', '--file', dest='file',
                             help="config file for routing groups "
                                  "(only in configfile mode)")
