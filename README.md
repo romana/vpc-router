@@ -1,4 +1,8 @@
-# vpc-router
+# VPC-router
+
+## Introduction
+
+### Summary
 
 The vpc-router implements automatic route failover and backup routes for Amazon
 VPC environments.
@@ -12,7 +16,7 @@ routes, backup routes and route failover in VPC environments.
 It provides a plugin architecture for the easy integration with other cloud
 orchestration systems.
 
-## Introduction
+### Details
 
 vpc-router is a utility for setting and deleting routes in Amazon EC2 VPC route
 tables and specifically for automatically managing route failover.
@@ -52,6 +56,7 @@ it does not depend on either project and can also be used stand-alone.
 Plugins for integration with different environments are provided. For example,
 a [plugin to integrate with Romana](https://github.com/romana/vpcrouter-romana-plugin).
 
+
 ## Installation and running
 
 You can either run vpc-router out of the source directory, or perform a full
@@ -85,15 +90,22 @@ production](DEPLOY.md), which covers issues such as:
 
 ## Contributing
 
+### Feedback, bug reports, issue tracker
+
 We welcome any contributions, bug reports or feedback. Please use our
 [issue tracker](https://github.com/romana/vpc-router/issues) to file bugs or request
 additional features.
+
+### Developing vpc-router
 
 In order to develop or extend vpc-router, please read the [developer
 documentation](DEVELOPERS.md) for information that might be useful to get you
 started.
 
-## Configuration: The route spec
+
+## Configuration
+
+### The route spec
 
 vpc-router requires a route spec configuration in JSON format. It looks
 something like this:
@@ -132,12 +144,16 @@ updates:
   production.
 
 The format of the config data in for the configfile or http mode (config file
-or POST request) is the identical.
+or POST request) is identical.
 
 The modes for the detection of configuration updates are implemented via
 plugins. It is therefore easy to directly extend vpc-router to integrate with
 various orchestration systems. [How to write plugins](PLUGINS.md) is documented
 separately.
+
+It is also possible to write external plugins, which live in their own
+repository. An example of this is the 'romana' plugin, which is described
+below.
 
 ### Mode 'configfile' 
 
@@ -196,7 +212,7 @@ For example:
 
     $ curl -X "POST" -H "Content-type:application/json" "http://localhost:33289/route_spec" -d '{"10.55.0.0/16" : [ "10.33.20.142" ], "10.66.17.0/24" : [ "10.33.20.93", "10.33.30.22" ]}'
 
-## Mode 'romana'
+### Mode 'romana'
 
 For integration with the [Romana project](http://romana.io/), please see the
 [vpc-router Romana plugin](https://github.com/romana/vpcrouter-romana-plugin).
