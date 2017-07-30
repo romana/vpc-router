@@ -19,7 +19,9 @@ limitations under the License.
 # Base class, exceptions and signals for the health monitor plugins.
 #
 
+import logging
 import Queue
+import time
 
 
 class StopReceived(Exception):
@@ -83,6 +85,111 @@ class MonitorPlugin(object):
 
         """
         return (self.q_monitor_ips, self.q_failed_ips)
+
+    def get_new_working_set(self):
+        """
+        Get a new list of IPs to work with from the queue.
+
+        This returns None if there is no update.
+
+        Read all the messages from the queue on which we get the IP addresses
+        that we have to monitor. We will ignore all of them, except the last
+        one, since maybe we received two updates in a row, but each update
+        is a full state, so only the last one matters.
+
+        Raises the StopReceived exception if the stop signal ("None") was
+        received on the notification queue.
+
+        """
+        new_list_of_ips = None
+        while True:
+            try:
+                new_list_of_ips = self.q_monitor_ips.get_nowait()
+                self.q_monitor_ips.task_done()
+                if type(new_list_of_ips) is MonitorPluginStopSignal:
+                    raise StopReceived()
+            except Queue.Empty:
+                # No more messages, all done reading monitor list for now
+                break
+        return new_list_of_ips
+
+    def do_health_checks(self, list_of_ips):
+        """
+        Perform a health check on a list of IP addresses.
+
+        Return a list of failed IP addresses.
+
+        """
+        raise NotImplementedError()
+
+    def start_monitoring(self):
+        """
+        Monitor IP addresses and send notifications if one of them has failed.
+
+        This function will continuously monitor q_monitor_ips for new lists of
+        IP addresses to monitor. Each message received there is the full state
+        (the complete lists of addresses to monitor).
+
+        Push out (return) any failed IPs on q_failed_ips. This is also a list
+        of IPs, which may be empty if all instances work correctly.
+
+        If q_monitor_ips receives a 'None' instead of list then this is
+        intepreted as a stop signal and the function exits.
+
+        """
+        time.sleep(1)
+
+        # This is our working set. This list may be updated occasionally when
+        # we receive messages on the q_monitor_ips queue. But irrespective of
+        # any received updates, the list of IPs in here is regularly checked.
+        list_of_ips          = []
+        currently_failed_ips = set()
+
+        # Accumulating failed IPs for 10 intervals before rechecking them to
+        # see if they are alive again
+        recheck_failed_interval = 10
+
+        try:
+            interval_count = 0
+            while True:
+                # See if we should update our working set
+                new_ips = self.get_new_working_set()
+                if new_ips:
+                    list_of_ips = new_ips
+
+                # Don't check failed IPs for liveness on every interval. We
+                # keep a list of currently-failed IPs for that purpose.
+                live_ips_to_check = [ip for ip in list_of_ips if
+                                     ip not in currently_failed_ips]
+                logging.debug("Checking live IPs: %s" %
+                              (",".join(live_ips_to_check)
+                               if live_ips_to_check else "(none alive)"))
+
+                # Independent of any updates: Perform health check on all IPs
+                # in the working set and send messages out about any failed
+                # once as necessary.
+                if live_ips_to_check:
+                    failed_ips = self.do_health_checks(live_ips_to_check)
+                    if failed_ips:
+                        self.q_failed_ips.put(failed_ips)
+                        # Update list of currently failed IPs with any new ones
+                        currently_failed_ips.update(failed_ips)
+                        logging.info('Currently failed IPs: %s' %
+                                     ",".join(currently_failed_ips))
+
+                if interval_count == recheck_failed_interval:
+                    # Ever now and then clean out our currently failed IP cache
+                    # so that we can recheck them to see if they are still
+                    # failed.
+                    interval_count = 0
+                    currently_failed_ips = set()
+
+                time.sleep(self.conf['interval'])
+                interval_count += 1
+
+        except StopReceived:
+            # Received the stop signal, just exiting the thread function
+            return
 
     @classmethod
     def add_arguments(cls, parser):
