@@ -24,7 +24,7 @@ import socket
 import Queue
 import time
 
-from vpcrouter import monitor
+from vpcrouter.monitor.plugins import icmpecho
 
 
 # This variable determines what IP addresses are considered 'failed' when we
@@ -33,20 +33,22 @@ from vpcrouter import monitor
 _FAILED_PREFIX = None
 
 
-class TestPing(unittest.TestCase):
+class TestPingPlugin(unittest.TestCase):
 
     def test_sending_receiving_ping(self):
         # Only thing we can really send a ping to that doesn't leak of the host
         # is localhost.
+        conf = {
+            "interval" : 2
+        }
+        p = icmpecho.Icmpecho(conf)
         try:
-            res = monitor.my_do_one("127.0.0.1", 1234, 1, 16)
-        except socket.error as e:
-            if "running as root" in str(e):
-                # We are not running as root, therefore, can't execute the
-                # ping. Need to just accept that.
-                print "@@@ Not running as root, can't test ping."
-                return
-            raise
+            res = p.my_do_one("127.0.0.1", 1234, 1, 16)
+        except icmpecho.EchoPermissionError:
+            # We are not running as root, therefore, can't execute the
+            # ping. Need to just accept that.
+            print "@@@ Not running as root, can't test ping."
+            return
         self.assertTrue(res is not None)
 
 
@@ -69,16 +71,21 @@ class TestQueues(unittest.TestCase):
                 raise socket.gaierror()
             else:
                 return 0.5
+        conf = {
+            "interval" : 0.1
+        }
+        p = icmpecho.Icmpecho(conf)
         # Now we install this new ping function in place of the original one.
         # Clearly, this is a white box test: We know about the inner working of
         # the monitoring module in order to perform our monkey patch.
-        monitor.my_do_one = new_do_one
+        p.my_do_one = new_do_one
 
         # Setup the monitor thread with a small monitoring interval (all
         # local, no real pings). We get back the thread and the two
         # communication queues.
-        self.monitor_thread, self.q_monitor_ips, self.q_failed_ips = \
-            monitor.start_monitor_thread(0.1)
+        p.start()
+        self.plugin = p
+        self.q_monitor_ips, self.q_failed_ips = self.plugin.get_queues()
 
         # Install the cleanup, which will send the stop signal to the monitor
         # thread once we are done with our test
@@ -89,8 +96,7 @@ class TestQueues(unittest.TestCase):
         Send the stop signal to the monitoring thread and end it.
 
         """
-        self.q_monitor_ips.put(None)   # send the stop signal
-        self.monitor_thread.join()
+        self.plugin.stop()
 
     def test_sending_receiving(self):
         #
@@ -110,6 +116,7 @@ class TestQueues(unittest.TestCase):
             # Now also with some malformed input
             (["333.3.3.5", "10.2.2.5", "11.3.3.5"], ["333.3.3.5", "11.3.3.5"])
         ]
+
         for inp, expected_out in input_output:
             self.q_monitor_ips.put(inp)
             if expected_out is None:
@@ -121,12 +128,12 @@ class TestQueues(unittest.TestCase):
                 while True:
                     # Read messages until we are at the last one
                     try:
-                        res = self.q_failed_ips.get(timeout=1)
+                        res = self.q_failed_ips.get(timeout=0.5)
+                        self.q_failed_ips.task_done()
+                        self.assertEqual(sorted(res),
+                                         sorted(expected_out))
                     except Queue.Empty:
                         break
-                self.q_failed_ips.task_done()
-                self.assertEqual(sorted(res),
-                                 sorted(expected_out))
 
     def test_multi_send_single_receive(self):
         #
@@ -158,7 +165,7 @@ class TestQueues(unittest.TestCase):
         self.assertEqual(sorted(res), sorted(expected_out))
 
         # Since the monitor will keep checking the IPs, we should keep getting
-        # results without en countering an empty queue
+        # results without encountering an empty queue
         res = self.q_failed_ips.get(timeout=1.5)
         res = self.q_failed_ips.get(timeout=1.5)
 

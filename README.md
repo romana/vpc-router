@@ -56,6 +56,10 @@ it does not depend on either project and can also be used stand-alone.
 Plugins for integration with different environments are provided. For example,
 a [plugin to integrate with Romana](https://github.com/romana/vpcrouter-romana-plugin).
 
+Health-checks are also implemented via plugins. This means that vpc-router may
+either directly contact EC2 instances to check their health, or it may instead
+connect to AWS status and alert information, or use the node status provided by
+orchestration systems, such as Kubernetes.
 
 ## Installation and running
 
@@ -101,7 +105,6 @@ additional features.
 In order to develop or extend vpc-router, please read the [developer
 documentation](DEVELOPERS.md) for information that might be useful to get you
 started.
-
 
 ## Configuration
 
@@ -224,15 +227,15 @@ instance does not appear healthy anymore and it is a current target for a route
 then the route will be automatically updated to point to an alternate target,
 if a healthy one is available.
 
-Currently, the health check consists of an ICMP echo request. In the future,
-this will be made configurable.
+The health-check itself is implemented via plugins, which gives vpc-router the
+flexibility to use a wide variety of information to determine whether an EC2
+routing instance is healthy. By default, it uses the 'icmpecho' plugin, which
+utilizes an ICMPecho ('ping') request to actively check the responsiveness of
+instances.
 
 ## TODO
 
 * Support for BGP listener: Allow vpc-router to act as BGP peer and receive
   route announcements via BGP.
-* Configurable health checks.
 * Ability to use CloudWatch alerts, instead of active health checks to detect
   instance failure.
-
-
