@@ -85,10 +85,12 @@ cluster nodes. It uses plugins so that it can easily be extended. The
 design of health monitor plugins are very similar to the watcher
 plugins.
 
-One health monitor plugin is included by default:
+Two health monitor plugin are included by default:
 
 * icmpecho: This uses ICMPecho (ping) requests to check that an EC2 instance is
   responsive.
+* tcp: This uses a TCP connection attempt to check that a process on an EC2
+  instance is responsive.
 
 A health monitor plugin communicates any detected failed instances to the main
 event loop of the vpc-router via a queue. It always sends a full list of the
@@ -101,9 +103,9 @@ host list.
 
 ## Location, naming convention and base class
 
-The 'icmpecho' health monitor plugin is included. It is an integrated
-health monitor plugin (included in the vpc-router source) and is located
-in the directory `vpcrouter/monitor/plugins/`.
+The 'icmpecho' and 'tcp' health monitor plugins are included. They are
+integrated health monitor plugins (included in the vpc-router source) and are
+located in the directory `vpcrouter/monitor/plugins/`.
 
 The `-H` / `--health` option in the vpc-router command line chooses the health
 monitor plugin. It uses 'icmpecho' as default value. The name of the plugin has

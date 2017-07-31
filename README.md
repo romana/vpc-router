@@ -231,7 +231,17 @@ The health-check itself is implemented via plugins, which gives vpc-router the
 flexibility to use a wide variety of information to determine whether an EC2
 routing instance is healthy. By default, it uses the 'icmpecho' plugin, which
 utilizes an ICMPecho ('ping') request to actively check the responsiveness of
-instances.
+instances. A 'tcp' plugin, which attempts TCP connection attempts on a
+specified port, is also provided.
+
+Use the `--health` option to select the health monitor plugin, for example:
+
+    $ vpcrouter --health tcp --tcp_check_port 22 --tcp_check_interval 5 ...
+
+or:
+
+    $ vpcrouter --health icmpecho --icmp_check_interval 5 ...
+
 
 ## TODO
 
