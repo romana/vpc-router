@@ -160,7 +160,7 @@ class MonitorPlugin(object):
                     # that are still in the spec. The list update may have
                     # removed some of the historical, failed IPs altogether.
                     currently_failed_ips = \
-                            set([ip for ip in currently_failed_ips \
+                            set([ip for ip in currently_failed_ips
                                  if ip in list_of_ips])
 
                 # Don't check failed IPs for liveness on every interval. We

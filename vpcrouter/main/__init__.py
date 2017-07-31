@@ -29,6 +29,9 @@ from vpcrouter.vpc     import get_ec2_meta_data
 from vpcrouter         import watcher
 
 
+_HEALTH_DEFAULT_PLUGIN = "icmpecho"
+
+
 def _setup_arg_parser(watcher_plugin_class, health_plugin_class):
     """
     Configure and return the argument parser for the command line options.
@@ -63,7 +66,7 @@ def _setup_arg_parser(watcher_plugin_class, health_plugin_class):
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="name of the watcher plugin")
     parser.add_argument('-H', '--health', dest='health', required=False,
-                        default="icmpecho",
+                        default=_HEALTH_DEFAULT_PLUGIN,
                         help="name of the health-check plugin")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
@@ -179,7 +182,7 @@ def load_plugin(plugin_name, default_plugin_module):
                           (plugin_mod_name, str(e)))
 
 
-def _param_extract(args, short_form, long_form):
+def _param_extract(args, short_form, long_form, default=None):
     """
     Quick extraction of a parameter from the command line argument list.
 
@@ -189,7 +192,7 @@ def _param_extract(args, short_form, long_form):
     Returns parameter value, or None if not present.
 
     """
-    val = None            # Parameter wasn't defined
+    val = default
     for i, a in enumerate(args):
         # Long form may use "--xyz=foo", so need to split on '=', but it
         # doesn't necessarily do that, can also be "--xyz foo".
@@ -221,14 +224,15 @@ def main():
         # a manual search through the argument list for this purpose only.
         args = sys.argv[1:]
 
-        mode_name = _param_extract(args, "-m", "--mode")
+        mode_name = _param_extract(args, "-m", "--mode", default=None)
         if mode_name:
             watcher_plugin_class = load_plugin(mode_name,
                                                "vpcrouter.watcher.plugins")
         else:
             watcher_plugin_class = None
 
-        health_check_name = _param_extract(args, "-H", "--health")
+        health_check_name = _param_extract(args, "-H", "--health",
+                                           default=_HEALTH_DEFAULT_PLUGIN)
         if health_check_name:
             health_plugin_class = load_plugin(health_check_name,
                                               "vpcrouter.monitor.plugins")
