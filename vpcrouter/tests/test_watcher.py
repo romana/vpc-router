@@ -167,12 +167,12 @@ class TestWatcherConfigfile(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.abs_fname = self.temp_dir + "/r.spec"
         self.conf = {
-            "file"        : self.abs_fname,
-            "region_name" : "dummy-region",
-            "vpc_id"      : "dummy-vpc",
-            "mode"        : "configfile",
-            "health"      : "icmpecho",
-            "interval"    : 2
+            "file"                : self.abs_fname,
+            "region_name"         : "dummy-region",
+            "vpc_id"              : "dummy-vpc",
+            "mode"                : "configfile",
+            "health"              : "icmpecho",
+            "icmp_check_interval" : 2
         }
         self.watcher_plugin_class = \
                 main.load_plugin("configfile", DEFAULT_WATCHER_PLUGIN_MOD)
@@ -373,13 +373,13 @@ class TestWatcherHttp(TestWatcherConfigfile):
     def additional_setup(self):
         global PORT
         self.conf = {
-            "addr"        : "localhost",
-            "port"        : PORT,
-            "region_name" : "dummy-region",
-            "vpc_id"      : "dummy-vpc",
-            "mode"        : "http",
-            "health"      : "icmpecho",
-            "interval"    : 2
+            "addr"                : "localhost",
+            "port"                : PORT,
+            "region_name"         : "dummy-region",
+            "vpc_id"              : "dummy-vpc",
+            "mode"                : "http",
+            "health"              : "icmpecho",
+            "icmp_check_interval" : 2
         }
         self.watcher_plugin_class = \
                 main.load_plugin("http", DEFAULT_WATCHER_PLUGIN_MOD)

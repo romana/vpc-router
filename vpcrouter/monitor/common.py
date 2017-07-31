@@ -113,6 +113,13 @@ class MonitorPlugin(object):
                 break
         return new_list_of_ips
 
+    def get_monitor_interval(self):
+        """
+        Return the sleep time between monitoring intervals.
+
+        """
+        raise NotImplementedError()
+
     def do_health_checks(self, list_of_ips):
         """
         Perform a health check on a list of IP addresses.
@@ -191,7 +198,7 @@ class MonitorPlugin(object):
                     interval_count = 0
                     currently_failed_ips = set()
 
-                time.sleep(self.conf['interval'])
+                time.sleep(self.get_monitor_interval())
                 interval_count += 1
 
         except StopReceived:

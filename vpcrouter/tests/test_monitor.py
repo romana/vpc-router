@@ -24,7 +24,7 @@ import socket
 import Queue
 import time
 
-from vpcrouter.monitor.plugins import icmpecho
+from vpcrouter.monitor.plugins import icmpecho, tcp
 
 
 # This variable determines what IP addresses are considered 'failed' when we
@@ -39,7 +39,7 @@ class TestPingPlugin(unittest.TestCase):
         # Only thing we can really send a ping to that doesn't leak of the host
         # is localhost.
         conf = {
-            "interval" : 2
+            "icmp_check_interval" : 2
         }
         p = icmpecho.Icmpecho(conf)
         try:
@@ -50,6 +50,32 @@ class TestPingPlugin(unittest.TestCase):
             print "@@@ Not running as root, can't test ping."
             return
         self.assertTrue(res is not None)
+
+
+class TestTcpPlugin(unittest.TestCase):
+
+    def test_tcp_health_check(self):
+        # Use localhost for test, so that we don't leak packets out on the
+        # network during tests. We also assume that we can use port 22 to try
+        # to connect to.
+        conf = {
+            "tcp_check_interval" : 2,
+            "tcp_check_port"     : 22
+        }
+        p = tcp.Tcp(conf)
+        results = []
+        p._do_tcp_check("127.0.0.1", results)
+        self.assertEqual(len(results), 0)
+
+        # Now check for a port that we assume isn't in use.
+        conf = {
+            "tcp_check_interval" : 2,
+            "tcp_check_port"     : 65533
+        }
+        p = tcp.Tcp(conf)
+        results = []
+        p._do_tcp_check("127.0.0.1", results)
+        self.assertEqual(results, ["127.0.0.1"])
 
 
 class TestQueues(unittest.TestCase):
@@ -72,7 +98,7 @@ class TestQueues(unittest.TestCase):
             else:
                 return 0.5
         conf = {
-            "interval" : 0.1
+            "icmp_check_interval" : 0.1
         }
         p = icmpecho.Icmpecho(conf)
         # Now we install this new ping function in place of the original one.
@@ -220,6 +246,37 @@ class TestQueues(unittest.TestCase):
                 if res[0] == "13.0.0.0":
                     # Finally received a message about 13. Done.
                     break
+
+
+class TestQueuesTcp(TestQueues):
+    # We can run all the same tests as before, but this time with the TCP
+    # health monitor plugin.
+
+    def setUp(self):
+        # Monkey patch the socket connect test function
+        def new_tcp_check(ip, results):
+            # There is a more low level test about malformed IP addresses that
+            # we use for the ICMP plugin. We don't really need to treat this in
+            # some extra way for the TCP plugin, but need to indicate a failure
+            # for this malformed IP here as well, so that the test doesn't
+            # fail. That's why there is the special case test for a malformed
+            # IP (starting with "333.").
+            if ip.startswith(_FAILED_PREFIX) or ip.startswith("333."):
+                results.append(ip)
+
+        conf = {
+            "tcp_check_interval" : 0.1,
+            "tcp_check_port" : 22
+        }
+
+        p = tcp.Tcp(conf)
+        p._do_tcp_check = new_tcp_check
+
+        p.start()
+        self.plugin = p
+        self.q_monitor_ips, self.q_failed_ips = self.plugin.get_queues()
+
+        self.addCleanup(self.cleanup)
 
 
 if __name__ == '__main__':

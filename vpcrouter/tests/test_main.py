@@ -67,7 +67,8 @@ class TestArgs(unittest.TestCase):
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
                  'vpc_id': '123', 'logfile': 'foo', 'health' : 'icmpecho',
-                 'interval' : 2, 'port': 33289, 'region_name': 'foo'}},
+                 'icmp_check_interval' : 2, 'port': 33289,
+                 'region_name': 'foo'}},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile'],
              "exc" : ArgsError, "watcher_plugin" : "configfile",

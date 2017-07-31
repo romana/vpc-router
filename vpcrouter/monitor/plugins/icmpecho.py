@@ -89,11 +89,18 @@ class Icmpecho(common.MonitorPlugin):
             pass
         results[ip] = res
 
+    def get_monitor_interval(self):
+        """
+        Return the sleep time between monitoring intervals.
+
+        """
+        return self.conf['icmp_check_interval']
+
     def do_health_checks(self, list_of_ips):
         """
         Perform a health check on a list of IP addresses.
 
-        Each check (we use ICMP echo right now) is run in its own thread.
+        Each check (we use ICMP echo) is run in its own thread.
 
         Gather up the results and return the list of those addresses that
         failed the test.
@@ -154,11 +161,12 @@ class Icmpecho(common.MonitorPlugin):
         Arguments for the configfile mode.
 
         """
-        parser.add_argument('-i', '--interval', dest='interval',
+        parser.add_argument('--icmp_check_interval',
+                            dest='icmp_check_interval',
                             required=False, default=2,
                             help="ICMPecho interval in seconds "
-                                 "(only in ping mode)")
-        return ["interval"]
+                                 "(only for 'icmpecho' health monitor plugin)")
+        return ["icmp_check_interval"]
 
     @classmethod
     def check_arguments(cls, conf):
@@ -169,16 +177,16 @@ class Icmpecho(common.MonitorPlugin):
         float.
 
         """
-        if not conf['interval']:
-            raise ArgsError("An ICMPecho interval needs to be specified (-i).")
+        if not conf['icmp_check_interval']:
+            raise ArgsError("An ICMPecho interval needs to be specified "
+                            "(--icmp_check_interval).")
 
         try:
-            conf['interval'] = float(conf['interval'])
+            conf['icmp_check_interval'] = float(conf['icmp_check_interval'])
         except Exception:
             raise ArgsError("Specified ICMPecho interval '%s' must be "
-                            "a number." %
-                            conf['interval'])
+                            "a number." % conf['icmp_check_interval'])
 
-        if not (1 <= conf['interval'] <= 3600):
+        if not (1 <= conf['icmp_check_interval'] <= 3600):
             raise ArgsError("Specified ICMPecho interval must be between "
                             "1 and 3600 seconds")
