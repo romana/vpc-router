@@ -32,7 +32,6 @@ from testfixtures       import LogCapture
 from watchdog.observers import Observer
 
 from vpcrouter import main
-from vpcrouter import monitor
 from vpcrouter import watcher
 from vpcrouter import vpc
 
@@ -171,9 +170,14 @@ class TestWatcherConfigfile(unittest.TestCase):
             "file"        : self.abs_fname,
             "region_name" : "dummy-region",
             "vpc_id"      : "dummy-vpc",
-            "mode"        : "configfile"
+            "mode"        : "configfile",
+            "health"      : "icmpecho",
+            "interval"    : 2
         }
-        self.plugin_class = main.load_plugin("configfile")
+        self.watcher_plugin_class = \
+                main.load_plugin("configfile", DEFAULT_WATCHER_PLUGIN_MOD)
+        self.health_plugin_class = \
+                main.load_plugin("icmpecho", DEFAULT_HEALTH_PLUGIN_MOD)
 
         # The watcher thread needs to have a config file available right at the
         # start, even if there's nothing in it
@@ -200,16 +204,6 @@ class TestWatcherConfigfile(unittest.TestCase):
             pass
         watcher.handle_spec = vpc.handle_spec = new_handle_spec
 
-        # Monkey patch the do_one ping method, since we don't really want to
-        # send out ICMP echo requests when we run the tests. Will indicate
-        # failure for all IP addresses starting with "3."
-        def new_do_one(ip, timeout, dummy_id, size):
-            if ip.startswith("3."):
-                return None    # indicates failure
-            else:
-                return 0.5     # indicates success
-        monitor.my_do_one = new_do_one
-
     def additional_cleanup(self):
         shutil.rmtree(self.temp_dir)
 
@@ -234,8 +228,11 @@ class TestWatcherConfigfile(unittest.TestCase):
 
     def test_watcher_thread_no_config(self):
         os.remove(self.abs_fname)
-        self.tinfo = watcher._start_working_threads(
-                                    self.conf, self.plugin_class, 2)
+        watcher_plugin, health_plugin = \
+                watcher.start_plugins(
+                    self.conf,
+                    self.watcher_plugin_class, self.health_plugin_class,
+                    2)
         time.sleep(0.5)
 
         # Config file doesn't exist yet, so we should get an error.
@@ -243,16 +240,20 @@ class TestWatcherConfigfile(unittest.TestCase):
         # there, yet.
         self.lc.check(
             self.start_thread_log_tuple(),
-            ('root',
-             'ERROR',
+            ('root', 'ERROR',
              "Config ignored: Cannot open file: "
-             "[Errno 2] No such file or directory: '%s'" % self.abs_fname))
+             "[Errno 2] No such file or directory: '%s'" % self.abs_fname),
+            ('root', 'INFO',
+             'ICMPecho health monitor plugin: Starting to watch instances.'))
 
-        watcher._stop_working_threads(self.tinfo)
+        watcher.stop_plugins(watcher_plugin, health_plugin)
 
     def test_watcher_thread_wrong_config(self):
-        self.tinfo = watcher._start_working_threads(
-                                    self.conf, self.plugin_class, 2)
+        watcher_plugin, health_plugin = \
+                watcher.start_plugins(
+                    self.conf,
+                    self.watcher_plugin_class, self.health_plugin_class,
+                    2)
         time.sleep(1.2)
 
         inp = "MALFORMED"
@@ -266,15 +267,33 @@ class TestWatcherConfigfile(unittest.TestCase):
             ('root', 'ERROR',
              'Config ignored: Expected dictionary at top level'))
 
-        watcher._stop_working_threads(self.tinfo)
+        watcher.stop_plugins(watcher_plugin, health_plugin)
 
     def test_watcher_thread(self):
-        self.tinfo = watcher._start_working_threads(
-                                    self.conf, self.plugin_class, 2)
+        # Monkey patch the do_one ping method of the health monitor class,
+        # since we don't really want to send out ICMP echo requests when we run
+        # the tests. Will indicate failure for all IP addresses starting with
+        # "3."
+        def new_do_one(self, ip, timeout, dummy_id, size):
+            if ip.startswith("3."):
+                return None    # indicates failure
+            else:
+                return 0.5     # indicates success
+
+        # We do this in the class, before the plugin is instantiated
+        self.health_plugin_class.my_do_one = new_do_one
+
+        watcher_plugin, health_plugin = \
+                watcher.start_plugins(
+                    self.conf,
+                    self.watcher_plugin_class, self.health_plugin_class,
+                    2)
+
         time.sleep(2)
         self.lc.check(
              self.start_thread_log_tuple(),
-             ('root', 'DEBUG', 'Started health monitoring thread'),
+             ('root', 'INFO',
+              'ICMPecho health monitor plugin: Starting to watch instances.'),
              ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
 
         self.lc.clear()
@@ -289,8 +308,7 @@ class TestWatcherConfigfile(unittest.TestCase):
 
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
-            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
-            self.tinfo['watcher_plugin'].get_route_spec_queue(),
+            watcher_plugin, health_plugin,
             iterations=1, sleep_time=0.5)
 
         time.sleep(2)
@@ -325,8 +343,7 @@ class TestWatcherConfigfile(unittest.TestCase):
 
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
-            self.tinfo['q_monitor_ips'], self.tinfo['q_failed_ips'],
-            self.tinfo['watcher_plugin'].get_route_spec_queue(),
+            watcher_plugin, health_plugin,
             iterations=1, sleep_time=0.5)
 
         time.sleep(2)
@@ -336,10 +353,13 @@ class TestWatcherConfigfile(unittest.TestCase):
              'with: 2.2.2.2,3.3.3.3,4.4.4.4'),
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
 
-        watcher._stop_working_threads(self.tinfo)
+        watcher.stop_plugins(watcher_plugin, health_plugin)
 
 
 PORT = 33289
+
+DEFAULT_WATCHER_PLUGIN_MOD = "vpcrouter.watcher.plugins"
+DEFAULT_HEALTH_PLUGIN_MOD  = "vpcrouter.monitor.plugins"
 
 
 class TestWatcherHttp(TestWatcherConfigfile):
@@ -357,9 +377,14 @@ class TestWatcherHttp(TestWatcherConfigfile):
             "port"        : PORT,
             "region_name" : "dummy-region",
             "vpc_id"      : "dummy-vpc",
-            "mode"        : "http"
+            "mode"        : "http",
+            "health"      : "icmpecho",
+            "interval"    : 2
         }
-        self.plugin_class = main.load_plugin("http")
+        self.watcher_plugin_class = \
+                main.load_plugin("http", DEFAULT_WATCHER_PLUGIN_MOD)
+        self.health_plugin_class = \
+                main.load_plugin("icmpecho", DEFAULT_HEALTH_PLUGIN_MOD)
         # Changing the listen port number of the server for each test, since we
         # can't reuse the socket addresses in such rapid succession
         PORT += 1
@@ -381,16 +406,22 @@ class TestWatcherHttp(TestWatcherConfigfile):
         return ('root', 'INFO', "New route spec posted")
 
     def test_watcher_thread_no_config(self):
-        self.tinfo = watcher._start_working_threads(
-                                self.conf, self.plugin_class, 2)
+        self.watcher_plugin, self.health_plugin = \
+                watcher.start_plugins(
+                        self.conf,
+                        self.watcher_plugin_class, self.health_plugin_class,
+                        2)
         time.sleep(0.5)
 
         # Config file doesn't exist yet, so we should get an error.
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
-        self.lc.check(self.start_thread_log_tuple())
+        self.lc.check(
+            self.start_thread_log_tuple(),
+            ('root', 'INFO',
+             'ICMPecho health monitor plugin: Starting to watch instances.'))
 
-        watcher._stop_working_threads(self.tinfo)
+        watcher.stop_plugins(self.watcher_plugin, self.health_plugin)
 
 
 if __name__ == '__main__':

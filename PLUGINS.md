@@ -1,3 +1,11 @@
+# Plugins for the vpc-router
+
+There are two types of plugins in use:
+
+* Watcher plugins (getting topology information from the environment and
+  orchestration system)
+* Health monitor plugins (checking the health of routing instances)
+
 # How to write watcher plugins
 
 The 'watcher' is the component of vpc-router that watches for changed routing
@@ -41,8 +49,8 @@ read the code there, including the docstrings. A plugin needs to implement a
 very basic and simple API, which is defined by the `WatcherPlugin` class.
 
 The plugin class' name should be the name of the plugin, capitalized.
-Therefore, the 'http' plugin provides the 'Http' class. The
-'configfile' plugin provides the 'Configfile' class, and so on.
+Therefore, the 'http' plugin provides the `Http` class. The
+'configfile' plugin provides the `Configfile` class, and so on.
 
 ## Example of an integrated plugin
 
@@ -68,3 +76,46 @@ As an example, please consider the
 It comes with its own `setup.py`, own test cases and own requirements files.
 By perusing this repository you can see how to develop an external plugin for
 vpc-router.
+
+
+# How to write health monitor plugins
+
+The 'monitor' is the component of vpc-router that watches the health of the
+cluster nodes. It uses plugins so that it can easily be extended. The
+design of health monitor plugins are very similar to the watcher
+plugins.
+
+One health monitor plugin is included by default:
+
+* icmpecho: This uses ICMPecho (ping) requests to check that an EC2 instance is
+  responsive.
+
+A health monitor plugin communicates any detected failed instances to the main
+event loop of the vpc-router via a queue. It always sends a full list of the
+currently failed instances, never a partial update.
+
+The main event loop also uses a second queue to send full host lists back to
+the monitor whenever there has been a change in the overall host list. The
+health monitor plugin then starts to monitor all the hosts in that updated
+host list.
+
+## Location, naming convention and base class
+
+The 'icmpecho' health monitor plugin is included. It is an integrated
+health monitor plugin (included in the vpc-router source) and is located
+in the directory `vpcrouter/monitor/plugins/`.
+
+The `-H` / `--health` option in the vpc-router command line chooses the health
+monitor plugin. It uses 'icmpecho' as default value. The name of the plugin has
+to match the name of the Python file in which the plugin is implemented. For
+example, the 'icmpecho' plugin is implemented in the
+`vpcrouter/monitor/plugins/icmpecho.py` file.
+
+Every health monitor plugin should provide an implementation of the
+`MonitorPlugin` base class, which is found in `vpcrouter/monitor/common.py`.
+If you wish to write your own health monitor plugin, please make sure you
+read the code there, including the docstrings. A plugin needs to implement
+a very basic and simple API, which is defined by the `MonitorPlugin` class.
+
+The plugin class' name should be the name of the plugin, capitalized.
+Therefore, the 'icmpecho' plugin provides the `Icmpecho` class.

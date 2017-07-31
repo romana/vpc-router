@@ -24,7 +24,6 @@ import logging
 import Queue
 import time
 
-from vpcrouter              import monitor
 from vpcrouter              import vpc
 from vpcrouter.currentstate import CURRENT_STATE
 
@@ -79,7 +78,7 @@ def _update_health_monitor_with_new_ips(route_spec, all_ips,
 
 
 def _event_monitor_loop(region_name, vpc_id,
-                        q_monitor_ips, q_failed_ips, q_route_spec,
+                        watcher_plugin, health_plugin,
                         iterations, sleep_time):
     """
     Monitor queues to receive updates about new route specs or any detected
@@ -93,6 +92,8 @@ def _event_monitor_loop(region_name, vpc_id,
     tests, sleep_time can be set to values less than 1.
 
     """
+    q_route_spec                = watcher_plugin.get_route_spec_queue()
+    q_monitor_ips, q_failed_ips = health_plugin.get_queues()
     time.sleep(sleep_time)   # Wait to allow monitor to report results
 
     current_route_spec = {}  # The last route spec we have seen
@@ -145,60 +146,44 @@ def _event_monitor_loop(region_name, vpc_id,
             logging.error("*** Uncaught exception 1: %s" % str(e))
 
 
-def _start_working_threads(conf, plugin_class, sleep_time):
+def start_plugins(conf, watcher_plugin_class, health_plugin_class,
+                  sleep_time):
     """
     Start the working threads:
 
-    - Health monitor
+    - Health monitor (the health plugin)
     - Config change monitor (the watcher plugin)
 
-    Return dict with thread info and the message queues that were created for
-    them.
-
-    There are different means of feeding updated route spec configs to the
-    vpc-router. These are implemented in the watcher plugins. The method/plugin
-    is chosen via the "mode" command line argument.
-
-    Independent of what mode is chosen, the specific config-watcher thread
-    always uses the same means of communicating updated configs back: A message
-    queue on which a full route spec is sent whenever the config changes.
-
     """
-    # Start the health monitoring thread
-    monitor_thread, q_monitor_ips, q_failed_ips = \
-                        monitor.start_monitor_thread(sleep_time)
-
     # No matter what the chosen plugin to watch for config updates: We get a
     # plugin-handle back. This gives us a start(), stop() and
     # get_route_spec_queue() function. All watcher plugins provide the same
     # interface.
-    plugin = plugin_class(conf)
-    plugin.start()
+    watcher_plugin = watcher_plugin_class(conf)
+    watcher_plugin.start()
 
-    return {
-               "monitor_thread" : monitor_thread,
-               "q_monitor_ips"  : q_monitor_ips,
-               "q_failed_ips"   : q_failed_ips,
-               "watcher_plugin" : plugin
-           }
+    # Similarly for the health-monitor-plugin. It gives us a get_queues()
+    # function, to get the monitor-ips and failed-ips queues.
+    health_plugin = health_plugin_class(conf)
+    health_plugin.start()
+
+    return watcher_plugin, health_plugin
 
 
-def _stop_working_threads(thread_info):
+def stop_plugins(watcher_plugin, health_plugin):
     """
-    Stops and collects the workin threads.
-
-    Needs the thread-info dict created by _start_working_threads().
+    Stops all plugins.
 
     """
     logging.debug("Stopping health-check monitor...")
-    thread_info['q_monitor_ips'].put(None)  # Stop signal for health monitor
-    thread_info['monitor_thread'].join()
+    health_plugin.stop()
 
     logging.debug("Stopping config change observer...")
-    thread_info['watcher_plugin'].stop()    # Stop signal for config watcher
+    watcher_plugin.stop()
 
 
-def start_watcher(conf, plugin_class, iterations=None, sleep_time=1):
+def start_watcher(conf, watcher_plugin_class, health_plugin_class,
+                  iterations=None, sleep_time=1):
     """
     Start watcher loop, listening for config changes or failed hosts.
 
@@ -211,7 +196,7 @@ def start_watcher(conf, plugin_class, iterations=None, sleep_time=1):
     This function starts a few working threads:
 
     - The watcher plugin to monitor for updated route specs.
-    - A health monitor thread for instances mentioned in the route spec.
+    - A health monitor plugin for instances mentioned in the route spec.
 
     It then drops into a loop to receive messages from the health monitoring
     thread and watcher plugin and re-process the config if any failed IPs are
@@ -222,14 +207,15 @@ def start_watcher(conf, plugin_class, iterations=None, sleep_time=1):
     """
     # Start the working threads (health monitor, config event monitor, etc.)
     # and return the thread handles and message queues in a thread-info dict.
-    tinfo = _start_working_threads(conf, plugin_class, sleep_time)
+    watcher_plugin, health_plugin = \
+            start_plugins(conf, watcher_plugin_class, health_plugin_class,
+                           sleep_time)
 
     # Start the loop to process messages from the monitoring
     # threads about any failed IP addresses or updated route specs.
     _event_monitor_loop(conf['region_name'], conf['vpc_id'],
-                        tinfo['q_monitor_ips'], tinfo['q_failed_ips'],
-                        tinfo['watcher_plugin'].get_route_spec_queue(),
+                        watcher_plugin, health_plugin,
                         iterations, sleep_time)
 
-    # Stopping and collecting all worker threads when we are done
-    _stop_working_threads(tinfo)
+    # Stopping plugins and collecting all worker threads when we are done
+    stop_plugins(watcher_plugin, health_plugin)

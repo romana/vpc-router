@@ -49,7 +49,7 @@ code complexity.
 The architecture of vpc-router is simple:
 
 * A health-monitor thread detects if there are any failed hosts
-  (`vpcrouter.monitor`).
+  (`vpcrouter.monitor.plugins.*`).
 * A configuration-watcher thread detects if there are any updates to the
   routing configuration (`vpcrouter.watcher.plugins.*`)
 * A main loop receives notifications from both those threads via queues

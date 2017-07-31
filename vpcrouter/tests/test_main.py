@@ -63,39 +63,44 @@ class TestArgs(unittest.TestCase):
             {"args" : ['-l', 'foo', '-v', '123'],
              "exc" : SystemExit, "out" : "2"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http'],
-             "exc" : None, "plugin" : "http",
+             "exc" : None, "watcher_plugin" : "http",
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
-                 'vpc_id': '123', 'logfile': 'foo',
-                 'port': 33289, 'region_name': 'foo'}},
+                 'vpc_id': '123', 'logfile': 'foo', 'health' : 'icmpecho',
+                 'interval' : 2, 'port': 33289, 'region_name': 'foo'}},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile'],
-             "exc" : ArgsError, "plugin" : "configfile",
+             "exc" : ArgsError, "watcher_plugin" : "configfile",
              "out" : "A config file needs to be specified (-f)."},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile',
                        '-f', "/_does_not_exists"],
-             "exc" : ArgsError, "plugin" : "configfile",
+             "exc" : ArgsError, "watcher_plugin" : "configfile",
              "out" : "Cannot open config file"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile', '-p', '99999'],
-             "exc" : SystemExit, "plugin" : "configfile",
+             "exc" : SystemExit, "watcher_plugin" : "configfile",
              "out" : "2"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
                        '-p', '99999'],
-             "exc" : ArgsError, "plugin" : "http",
+             "exc" : ArgsError, "watcher_plugin" : "http",
              "out" : "Invalid listen port"},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
                        '-a', '999.9'],
-             "exc" : ArgsError, "plugin" : "http",
+             "exc" : ArgsError, "watcher_plugin" : "http",
              "out" : "Not a valid IP address"}
         ]
 
         for i in inp:
-            if 'plugin' in i:
-                plc = main.load_plugin(i['plugin'])
+            if 'watcher_plugin' in i:
+                wplc = main.load_plugin(i['watcher_plugin'],
+                                        "vpcrouter.watcher.plugins")
             else:
-                plc = None
+                wplc = None
+
+            hplc = main.load_plugin(i.get('health_plugin', 'icmpecho'),
+                                    "vpcrouter.monitor.plugins")
+
             args = i['args']
             exc  = i['exc']
             out  = i.get('out', "")
@@ -104,10 +109,10 @@ class TestArgs(unittest.TestCase):
             sys.stderr = StringIO()
             if exc:
                 with self.assertRaises(exc) as ex:
-                    main.parse_args(args, plc)
+                    main.parse_args(args, wplc, hplc)
                 self.assertTrue(out in str(ex.exception.message))
             else:
-                conf_is = main.parse_args(args, plc)
+                conf_is = main.parse_args(args, wplc, hplc)
                 output  = sys.stderr.getvalue().strip()
                 ll      = self.get_last_line(output)
                 if not out:
