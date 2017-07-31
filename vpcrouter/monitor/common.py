@@ -156,6 +156,12 @@ class MonitorPlugin(object):
                 new_ips = self.get_new_working_set()
                 if new_ips:
                     list_of_ips = new_ips
+                    # Update the currently-failed-IP list to only include IPs
+                    # that are still in the spec. The list update may have
+                    # removed some of the historical, failed IPs altogether.
+                    currently_failed_ips = \
+                            set([ip for ip in currently_failed_ips \
+                                 if ip in list_of_ips])
 
                 # Don't check failed IPs for liveness on every interval. We
                 # keep a list of currently-failed IPs for that purpose.
@@ -171,11 +177,12 @@ class MonitorPlugin(object):
                 if live_ips_to_check:
                     failed_ips = self.do_health_checks(live_ips_to_check)
                     if failed_ips:
-                        self.q_failed_ips.put(failed_ips)
                         # Update list of currently failed IPs with any new ones
                         currently_failed_ips.update(failed_ips)
                         logging.info('Currently failed IPs: %s' %
                                      ",".join(currently_failed_ips))
+                        # Let the main loop know the full set of failed IPs
+                        self.q_failed_ips.put(list(currently_failed_ips))
 
                 if interval_count == recheck_failed_interval:
                     # Ever now and then clean out our currently failed IP cache

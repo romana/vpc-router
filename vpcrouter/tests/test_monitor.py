@@ -209,7 +209,7 @@ class TestQueues(unittest.TestCase):
         seen_12 = False
         while True:
             res = self.q_failed_ips.get(timeout=1)
-            self.assertEqual(1, len(res))  # only should ever see one result
+            self.assertTrue(1 <= len(res) <= 2)  # latest and currently failed
             if not seen_12:
                 # Make sure we see at least one more message for 12.
                 self.assertEqual(res[0], "12.0.0.0")
