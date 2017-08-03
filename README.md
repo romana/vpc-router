@@ -249,8 +249,8 @@ combining of multiple, simpler health-monitoring plugins into complex or
 multi-layered instance health monitoring. Use the `--health` option to select
 the `multi` plugin. Then use the `--multi_plugins` option to specify the list
 of simple health plugins that should be used simultaneously (a list of column
-separated heal-monitor plugin names). Any additional command line options added
-by those plugins can then also be specified.
+separated health-monitor plugin names). Any additional command line options
+added by those plugins can then also be specified.
 
 As an example, let's configure vpc-router to use the `icmpecho` plugin (with a
 monitoring interval of 2 seconds) as well as the `tcp` plugin, which should
@@ -264,7 +264,6 @@ the instance as failed.
 
 ## TODO
 
-* Support for BGP listener: Allow vpc-router to act as BGP peer and receive
-  route announcements via BGP.
-* Ability to use CloudWatch alerts, instead of active health checks to detect
-  instance failure.
+A 'todo' list is maintained in the
+[issue tracker](https://github.com/romana/vpc-router/issues) of the project.
+
