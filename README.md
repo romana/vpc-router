@@ -242,6 +242,25 @@ or:
 
     $ vpcrouter --health icmpecho --icmp_check_interval 5 ...
 
+### The 'multi' plugin: Combining more than one health monitor plugin
+
+A `multi` plugin is also provided with vpc-router. This plugin allows the
+combining of multiple, simpler health-monitoring plugins into complex or
+multi-layered instance health monitoring. Use the `--health` option to select
+the `multi` plugin. Then use the `--multi_plugins` option to specify the list
+of simple health plugins that should be used simultaneously (a list of column
+separated heal-monitor plugin names). Any additional command line options added
+by those plugins can then also be specified.
+
+As an example, let's configure vpc-router to use the `icmpecho` plugin (with a
+monitoring interval of 2 seconds) as well as the `tcp` plugin, which should
+monitor port 80.
+
+    $ vpcrouter --health multi --multi_plugins icmpecho:tcp \
+                        --icmp_check_interval 2 --tcp_check_port 80 ...
+
+An instance is considered 'failed' if ANY of the specified sub-plugins reports
+the instance as failed.
 
 ## TODO
 

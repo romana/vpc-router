@@ -21,32 +21,13 @@ limitations under the License.
 
 import itertools
 import logging
-import Queue
 import time
 
-from vpcrouter              import vpc
+from vpcrouter              import vpc, utils
 from vpcrouter.currentstate import CURRENT_STATE
 
 
-def _read_last_msg_from_queue(q):
-    """
-    Read all messages from a queue and return the last one.
-
-    This is useful in our case, since all messages are always the complete
-    state of things. Therefore, intermittent messages can be ignored.
-
-    Doesn't block, returns None if there is no message waiting in the queue.
-
-    """
-    msg = None
-    while True:
-        try:
-            # The list of IPs is always a full list.
-            msg = q.get_nowait()
-            q.task_done()
-        except Queue.Empty:
-            # No more messages, all done for now
-            return msg
+WATCHER_DEFAULT_PLUGIN_MODULE = "vpcrouter.watcher.plugins"
 
 
 def _update_health_monitor_with_new_ips(route_spec, all_ips,
@@ -103,8 +84,8 @@ def _event_monitor_loop(region_name, vpc_id,
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
             # immediately have been initialized with a first message.
-            failed_ips     = _read_last_msg_from_queue(q_failed_ips)
-            new_route_spec = _read_last_msg_from_queue(q_route_spec)
+            failed_ips     = utils.read_last_msg_from_queue(q_failed_ips)
+            new_route_spec = utils.read_last_msg_from_queue(q_route_spec)
 
             if failed_ips:
                 # Store the failed IPs in the shared state

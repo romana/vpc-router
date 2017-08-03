@@ -212,7 +212,7 @@ class Http(common.WatcherPlugin):
         logging.info("Http watcher plugin: Stopped")
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
         Add arguments for the http mode to the argument parser.
 

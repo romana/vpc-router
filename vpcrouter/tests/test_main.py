@@ -110,10 +110,10 @@ class TestArgs(unittest.TestCase):
             sys.stderr = StringIO()
             if exc:
                 with self.assertRaises(exc) as ex:
-                    main.parse_args(args, wplc, hplc)
+                    main._parse_args(args, wplc, hplc)
                 self.assertTrue(out in str(ex.exception.message))
             else:
-                conf_is = main.parse_args(args, wplc, hplc)
+                conf_is = main._parse_args(args, wplc, hplc)
                 output  = sys.stderr.getvalue().strip()
                 ll      = self.get_last_line(output)
                 if not out:

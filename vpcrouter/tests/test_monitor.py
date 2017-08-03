@@ -24,7 +24,9 @@ import socket
 import Queue
 import time
 
-from vpcrouter.monitor.plugins import icmpecho, tcp
+from vpcrouter                 import utils
+from vpcrouter.monitor         import common
+from vpcrouter.monitor.plugins import icmpecho, tcp, multi
 
 
 # This variable determines what IP addresses are considered 'failed' when we
@@ -277,6 +279,110 @@ class TestQueuesTcp(TestQueues):
         self.q_monitor_ips, self.q_failed_ips = self.plugin.get_queues()
 
         self.addCleanup(self.cleanup)
+
+
+class TestMulti(unittest.TestCase):
+    # Test aspects of the multi plugin
+
+    def setUp(self):
+        self.mp = None
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        if self.mp:
+            self.mp.stop()
+
+    def test_expire_set(self):
+        exp = multi.ExpireSet(0.2)
+        self.assertFalse(exp.get())
+
+        # Watching a set expire after some time
+        exp.update([1, 2, 3])
+        self.assertEqual(exp.get(), [1, 2, 3])  # still here...
+        time.sleep(0.15)
+        self.assertEqual(exp.get(), [1, 2, 3])  # still here...
+        time.sleep(0.15)
+        self.assertFalse(exp.get())             # ... and now it's gone
+
+        exp.update([1, 2, 3])                   # add data...
+        time.sleep(0.15)
+        exp.update([3, 4, 5])                   # ... update some old and new
+        time.sleep(0.15)
+        self.assertEqual(exp.get(), [3, 4, 5])  # only recent data shows
+
+        exp.update([4])
+        time.sleep(0.05)
+        exp.update([3])
+        time.sleep(0.05)                        # oldest stuff expires
+        self.assertEqual(exp.get(), [3, 4])
+        time.sleep(0.11)                        # now a little more expires
+        self.assertEqual(exp.get(), [3])
+
+    def test_multi_plugin(self):
+
+        class Testplugin(common.MonitorPlugin):
+            # We'll use an easy to control test plugin for our multi-plugin
+            # test.
+            def __init__(self, conf, thread_name):
+                self.thread_name = thread_name
+                super(Testplugin, self).__init__(conf, thread_name)
+
+            def get_monitor_interval(self):
+                return 0.2
+
+            def start(self):
+                pass
+
+            def send(self, items):
+                # This allows us to force the plugin to 'report' specified
+                # failed IP addresses.
+                self.q_failed_ips.put(items)
+
+        conf = {}
+        t1 = Testplugin(conf, "t1")
+        t2 = Testplugin(conf, "t2")
+        mp = multi.Multi(conf, TEST_PLUGINS=[
+                                  ("t1", t1),
+                                  ("t2", t2),
+                               ])
+        self.mp = mp
+        mp.start()
+
+        qm, qf = mp.get_queues()
+
+        # Test that new monitor IPs are passed on.
+        time.sleep(1)
+        qm.put(["10.1.1.1", "10.1.1.2", "10.1.1.2"])
+        self.assertEqual(sorted(t1.q_monitor_ips.get()),
+                         ["10.1.1.1", "10.1.1.2", "10.1.1.2"])
+        self.assertEqual(sorted(t2.q_monitor_ips.get()),
+                         ["10.1.1.1", "10.1.1.2", "10.1.1.2"])
+
+        # Sending various failed IPs through the two plugins. We should get
+        # accumulated results...
+        self.assertTrue(utils.read_last_msg_from_queue(qf) is None)
+        t1.send(["10.1.1.1", "10.1.1.2"])
+        time.sleep(0.5)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
+                         ["10.1.1.1", "10.1.1.2"])
+        t2.send(["10.1.1.3"])
+        time.sleep(0.5)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
+                         ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
+        t1.send(["10.1.1.1"])
+        time.sleep(0.5)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
+                         ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
+        time.sleep(1)
+        t1.send(["10.1.1.1"])
+        time.sleep(2)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
+                         ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
+        t1.send(["10.1.1.2"])
+        time.sleep(1)
+        # ... but without refresh, some results should eventually disappear
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
+                         ["10.1.1.1", "10.1.1.2"])
 
 
 if __name__ == '__main__':

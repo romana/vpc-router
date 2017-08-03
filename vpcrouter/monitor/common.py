@@ -48,7 +48,7 @@ class MonitorPlugin(object):
     Every plugin should implement all of these functions.
 
     """
-    def __init__(self, conf):
+    def __init__(self, conf, thread_name):
         """
         Gives access to the config of the program to the plugin.
 
@@ -63,6 +63,7 @@ class MonitorPlugin(object):
         self.conf          = conf
         self.q_monitor_ips = Queue.Queue()
         self.q_failed_ips  = Queue.Queue()
+        self.thread_name   = thread_name
 
     def start(self):
         """
@@ -180,7 +181,7 @@ class MonitorPlugin(object):
 
                 # Independent of any updates: Perform health check on all IPs
                 # in the working set and send messages out about any failed
-                # once as necessary.
+                # ones as necessary.
                 if live_ips_to_check:
                     failed_ips = self.do_health_checks(live_ips_to_check)
                     if failed_ips:
@@ -206,7 +207,7 @@ class MonitorPlugin(object):
             return
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
         Callback to add command line options for this plugin to the argparse
         parser.

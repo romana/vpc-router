@@ -84,7 +84,7 @@ class WatcherPlugin(object):
         return self.q_route_spec
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
         Callback to add command line options for this plugin to the argparse
         parser.
