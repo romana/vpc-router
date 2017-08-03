@@ -44,6 +44,9 @@ class Icmpecho(common.MonitorPlugin):
     instances for health.
 
     """
+    def __init__(self, conf):
+        super(Icmpecho, self).__init__(conf, "IcmpechoHealth")
+
     def my_do_one(self, dest_addr, ping_id, timeout, psize):
         """
         Returns either the delay (in seconds) or none on timeout.
@@ -121,8 +124,10 @@ class Icmpecho(common.MonitorPlugin):
         nowsecs = int(time.time()) % 255
         for count, ip in enumerate(list_of_ips):
             ping_id = (nowsecs << 8) + count  # ... plus running count of pkts
-            thread = threading.Thread(target=self._do_ping,
-                                      args=(ip, ping_id, results))
+            thread = threading.Thread(
+                                target = self._do_ping,
+                                name   = "%s:%s" % (self.thread_name, ip),
+                                args   = (ip, ping_id, results))
             thread.start()
             threads.append(thread)
 
@@ -135,20 +140,23 @@ class Icmpecho(common.MonitorPlugin):
 
     def start(self):
         """
-        Start the configfile change monitoring thread.
+        Start the monitoring thread of the plugin.
 
         """
         logging.info("ICMPecho health monitor plugin: Starting to watch "
                      "instances.")
 
         self.monitor_thread = threading.Thread(target = self.start_monitoring,
-                                               name   = "HealthMon")
+                                               name   = self.thread_name)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
 
     def stop(self):
         """
-        Stop the config change monitoring thread.
+        Stop the monitoring thread of the plugin.
+
+        The super-class will send the stop signal on the monitor-IP queue,
+        which prompts the loop to stop.
 
         """
         super(Icmpecho, self).stop()
@@ -156,9 +164,9 @@ class Icmpecho(common.MonitorPlugin):
         logging.info("ICMPecho health monitor plugin: Stopped")
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
-        Arguments for the configfile mode.
+        Arguments for the ICMPecho health monitor plugin.
 
         """
         parser.add_argument('--icmp_check_interval',
@@ -171,7 +179,7 @@ class Icmpecho(common.MonitorPlugin):
     @classmethod
     def check_arguments(cls, conf):
         """
-        Sanity checks for options needed for configfile mode.
+        Sanity check plugin options values.
 
         As a side effect, it also converts the specified interval to a
         float.

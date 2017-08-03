@@ -85,12 +85,14 @@ cluster nodes. It uses plugins so that it can easily be extended. The
 design of health monitor plugins are very similar to the watcher
 plugins.
 
-Two health monitor plugin are included by default:
+Three health monitor plugin are included by default:
 
 * icmpecho: This uses ICMPecho (ping) requests to check that an EC2 instance is
   responsive.
 * tcp: This uses a TCP connection attempt to check that a process on an EC2
   instance is responsive.
+* multi: This uses a specified set of simple health monitoring plugins to run
+  multiple health-checks at the same time.
 
 A health monitor plugin communicates any detected failed instances to the main
 event loop of the vpc-router via a queue. It always sends a full list of the

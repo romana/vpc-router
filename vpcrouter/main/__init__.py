@@ -19,20 +19,18 @@ limitations under the License.
 # arguments.
 
 import argparse
-import importlib
 import logging
 import sys
 
-from vpcrouter.errors  import ArgsError, PluginError
+from vpcrouter                  import monitor
+from vpcrouter                  import utils
+from vpcrouter                  import watcher
+from vpcrouter.errors           import ArgsError
+from vpcrouter.plugin_framework import load_plugin
+from vpcrouter.vpc              import get_ec2_meta_data
 
-from vpcrouter.vpc     import get_ec2_meta_data
-from vpcrouter         import watcher
 
-
-_HEALTH_DEFAULT_PLUGIN = "icmpecho"
-
-
-def _setup_arg_parser(watcher_plugin_class, health_plugin_class):
+def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     """
     Configure and return the argument parser for the command line options.
 
@@ -45,10 +43,13 @@ def _setup_arg_parser(watcher_plugin_class, health_plugin_class):
     remain unset on the command line. We will have to complain about those
     parameters missing later on, if the auto discovery fails.
 
+    The args_list (from sys.argv) is passed in, since some plugins have to do
+    their own ad-hoc extraction of certain parameters in order to add things
+    to the official parameter list.
+
     Return parser and the conf-name of all the arguments that have been added.
 
     """
-
     parser = argparse.ArgumentParser(
                     description="VPC router: Manage routes in VPC route table")
     # General arguments
@@ -66,43 +67,43 @@ def _setup_arg_parser(watcher_plugin_class, health_plugin_class):
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="name of the watcher plugin")
     parser.add_argument('-H', '--health', dest='health', required=False,
-                        default=_HEALTH_DEFAULT_PLUGIN,
+                        default=monitor.MONITOR_DEFAULT_PLUGIN,
                         help="name of the health-check plugin")
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
     arglist = ["logfile", "region_name", "vpc_id", "mode", "health", "verbose"]
 
-    # Let each watcher and health-monitor plugin add its own arguments
-    if watcher_plugin_class:
-        arglist.extend(watcher_plugin_class.add_arguments(parser))
-    if health_plugin_class:
-        arglist.extend(health_plugin_class.add_arguments(parser))
+    # Let each watcher and health-monitor plugin add its own arguments.
+    for plugin_class in [watcher_plugin_class, health_plugin_class]:
+        if plugin_class:
+            arglist.extend(plugin_class.add_arguments(parser, args_list))
 
     return parser, arglist
 
 
-def parse_args(args_list, watcher_plugin_class=None, health_plugin_class=None):
+def _parse_args(args_list, watcher_plugin_class, health_plugin_class):
     """
     Parse command line arguments and return relevant values in a dict.
 
     Also perform basic sanity checking on some arguments.
 
-    If a watcher plugin class has been passed in, a callback into that class
-    will be used to extend the arguments with plugin-specific options.
+    If plugin classes have been provided then a callback into those classes is
+    used to extend the arguments with plugin-specific options.
 
     Likewise, the sanity checking will then also invoke a callback into the
-    plugin, chosen by the -m (mode) option, in order to perform a sanity check
-    on the plugin options.
+    plugins, in order to perform a sanity check on the plugin options.
 
     """
     conf = {}
 
-    # Setting up the command line argument parser
-    parser, arglist = _setup_arg_parser(watcher_plugin_class,
+    # Setting up the command line argument parser. Note that we pass the
+    # complete list of all plugins, so that their parameter can be added to the
+    # official parameter handling, the help screen, etc. Some plugins may even
+    # add further plugins themselves, but will handle this themselves.
+    parser, arglist = _setup_arg_parser(args_list, watcher_plugin_class,
                                         health_plugin_class)
-
-    args = parser.parse_args(args_list)
+    args            = parser.parse_args(args_list)
 
     # Transcribe argument values into our own dict
     for argname in arglist:
@@ -111,7 +112,7 @@ def parse_args(args_list, watcher_plugin_class=None, health_plugin_class=None):
     # Sanity checking of arguments. Let the watcher and health-monitor plugin
     # class check their own arguments.
     for plugin_class in [watcher_plugin_class, health_plugin_class]:
-        if plugin_class is not None:
+        if plugin_class:
             try:
                 plugin_class.check_arguments(conf)
             except ArgsError as e:
@@ -121,7 +122,7 @@ def parse_args(args_list, watcher_plugin_class=None, health_plugin_class=None):
     return conf
 
 
-def setup_logging(conf):
+def _setup_logging(conf):
     """
     Configure the logging framework.
 
@@ -137,78 +138,12 @@ def setup_logging(conf):
 
     logging.basicConfig(filename=fname, level=level,
                         format='%(asctime)s - %(levelname)-8s - '
-                               '%(threadName)-11s - %(message)s')
+                               '%(threadName)-15s - %(message)s')
 
     # Don't want to see all the messages from BOTO and watchdog
     logging.getLogger('boto').setLevel(logging.CRITICAL)
     logging.getLogger('watchdog.observers.inotify_buffer'). \
                                                 setLevel(logging.CRITICAL)
-
-
-def load_plugin(plugin_name, default_plugin_module):
-    """
-    Load a plugin plugin.
-
-    Supports loading of plugins that are part of the vpcrouter, as well as
-    external plugins: If the plugin name has a dotted notation then it
-    assumes it's an external plugin and the dotted notation is the complete
-    import path. If it's just a single word then it looks for the plugin in
-    the specified default module.
-
-    Return the plugin class.
-
-    """
-    try:
-        if "." in plugin_name:
-            # Assume external plugin, full path
-            plugin_mod_name   = plugin_name
-            plugin_class_name = plugin_name.split(".")[-1].capitalize()
-        else:
-            # One of the built-in plugins
-            plugin_mod_name   = "%s.%s" % (default_plugin_module, plugin_name)
-            plugin_class_name = plugin_name.capitalize()
-
-        plugin_mod        = importlib.import_module(plugin_mod_name)
-        plugin_class      = getattr(plugin_mod, plugin_class_name)
-        return plugin_class
-    except ImportError as e:
-        raise PluginError("Cannot load '%s'" % plugin_mod_name)
-    except AttributeError:
-        raise PluginError("Cannot find plugin class '%s' in "
-                          "plugin '%s'" %
-                          (plugin_class_name, plugin_mod_name))
-    except Exception as e:
-        raise PluginError("Error while loading plugin '%s': %s" %
-                          (plugin_mod_name, str(e)))
-
-
-def _param_extract(args, short_form, long_form, default=None):
-    """
-    Quick extraction of a parameter from the command line argument list.
-
-    In some cases we need to parse a few arguments before the official
-    arg-parser starts.
-
-    Returns parameter value, or None if not present.
-
-    """
-    val = default
-    for i, a in enumerate(args):
-        # Long form may use "--xyz=foo", so need to split on '=', but it
-        # doesn't necessarily do that, can also be "--xyz foo".
-        elems = a.split("=", 1)
-        if elems[0] in [short_form, long_form]:
-            # At least make sure that an actual name was specified
-            if len(elems) == 1:
-                if i + 1 < len(args) and not args[i + 1].startswith("-"):
-                    val = args[i + 1]
-                else:
-                    val = ""  # Invalid value was specified
-            else:
-                val = elems[1]
-            break
-
-    return val
 
 
 def main():
@@ -224,24 +159,30 @@ def main():
         # a manual search through the argument list for this purpose only.
         args = sys.argv[1:]
 
-        mode_name = _param_extract(args, "-m", "--mode", default=None)
+        # Loading the watcher plugin
+        mode_name = utils.param_extract(args, "-m", "--mode", default=None)
         if mode_name:
-            watcher_plugin_class = load_plugin(mode_name,
-                                               "vpcrouter.watcher.plugins")
+            watcher_plugin_class = \
+                load_plugin(mode_name, watcher.WATCHER_DEFAULT_PLUGIN_MODULE)
         else:
             watcher_plugin_class = None
 
-        health_check_name = _param_extract(args, "-H", "--health",
-                                           default=_HEALTH_DEFAULT_PLUGIN)
+        # Loading the health monitor plugin
+        health_check_name = \
+            utils.param_extract(args, "-H", "--health",
+                                default=monitor.MONITOR_DEFAULT_PLUGIN)
         if health_check_name:
-            health_plugin_class = load_plugin(health_check_name,
-                                              "vpcrouter.monitor.plugins")
+            health_plugin_class = \
+                load_plugin(health_check_name,
+                            monitor.MONITOR_DEFAULT_PLUGIN_MODULE)
         else:
             health_plugin_class = None
 
-        conf = parse_args(sys.argv[1:],
-                          watcher_plugin_class, health_plugin_class)
-        setup_logging(conf)
+        # Provide complete arg parsing for vpcrouter and all plugin classes.
+        conf = _parse_args(sys.argv[1:],
+                           watcher_plugin_class, health_plugin_class)
+
+        _setup_logging(conf)
 
         # If we are on an EC2 instance then some data is already available to
         # us. The return data items in the meta data match some of the command

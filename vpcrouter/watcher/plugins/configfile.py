@@ -153,7 +153,7 @@ class Configfile(common.WatcherPlugin):
         logging.info("Configfile watcher plugin: Stopped")
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
         Arguments for the configfile mode.
 

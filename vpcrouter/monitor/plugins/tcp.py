@@ -34,6 +34,9 @@ class Tcp(common.MonitorPlugin):
     instances for health.
 
     """
+    def __init__(self, conf):
+        super(Tcp, self).__init__(conf, "TcpHealth")
+
     def _do_tcp_check(self, ip, results):
         """
         Attempt to establish a TCP connection.
@@ -79,13 +82,12 @@ class Tcp(common.MonitorPlugin):
         threads = []
         results = []
 
-        # Start the thread for each IP we wish to ping.  We calculate a unique
-        # ID for the ICMP echo request sent by each thread.  It's based on the
-        # slowly increasing time stamp (just 8 bits worth of the seconds since
-        # epoch)...
+        # Start the thread for each IP we wish to check.
         for count, ip in enumerate(list_of_ips):
-            thread = threading.Thread(target=self._do_tcp_check,
-                                      args=(ip, results))
+            thread = threading.Thread(
+                                target = self._do_tcp_check,
+                                name   = "%s:%s" % (self.thread_name, ip),
+                                args   = (ip, results))
             thread.start()
             threads.append(thread)
 
@@ -98,20 +100,23 @@ class Tcp(common.MonitorPlugin):
 
     def start(self):
         """
-        Start the configfile change monitoring thread.
+        Start the monitoring thread of the plugin.
 
         """
         logging.info("TCP health monitor plugin: Starting to watch "
                      "instances.")
 
         self.monitor_thread = threading.Thread(target = self.start_monitoring,
-                                               name   = "HealthMon")
+                                               name   = self.thread_name)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
 
     def stop(self):
         """
-        Stop the config change monitoring thread.
+        Stop the monitoring thread of the plugin.
+
+        The super-class will send the stop signal on the monitor-IP queue,
+        which prompts the loop to stop.
 
         """
         super(Tcp, self).stop()
@@ -119,9 +124,9 @@ class Tcp(common.MonitorPlugin):
         logging.info("TCP health monitor plugin: Stopped")
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
-        Arguments for the configfile mode.
+        Arguments for the TCP health monitor plugin.
 
         """
         parser.add_argument('--tcp_check_interval',
@@ -139,10 +144,10 @@ class Tcp(common.MonitorPlugin):
     @classmethod
     def check_arguments(cls, conf):
         """
-        Sanity checks for options needed for configfile mode.
+        Sanity check plugin options values.
 
-        As a side effect, it also converts the specified interval to an
-        integer.
+        As a side effect, it also converts the specified interval and port
+        to an integer.
 
         """
         # Checking the interval

@@ -73,7 +73,7 @@ class Fixedconf(common.WatcherPlugin):
         logging.info("Fixedconf watcher plugin: Stopped")
 
     @classmethod
-    def add_arguments(cls, parser):
+    def add_arguments(cls, parser, sys_arg_list=None):
         """
         Callback to add command line options for this plugin to the argparse
         parser.
