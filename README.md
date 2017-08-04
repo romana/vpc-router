@@ -136,27 +136,46 @@ of the route spec.
 
 ## Modes of operation
 
-By default there are three modes in which vpc-router can receive configuration
-updates:
+The modes for the detection of configuration updates are implemented via
+plugins. It is therefore easy to extend vpc-router to integrate with
+various orchestration systems. [How to write plugins](PLUGINS.md) is documented
+separately.
 
-* configfile: Continuosly monitor a route spec configuration file for any changes.
+A plugin may either accept a route-spec in the format described above, or it
+may be used to translate other information into the properly formatted
+route-spec.
+
+### Internal mode plugins
+
+Out of the box, plugins for three different configuration update modes are
+included in the vpc-router source:
+
+* configfile: Continuosly monitor a route spec configuration file for any
+  changes.
 * http: Receive updated route specs via HTTP POSTs.
 * fixedconf: With this a static config can be provided on the command line. It
   is mostly used as a simple example for plugin developers. It does work
   and might be useful in some cases, but is not commonly going to be used in
-  production.
+  production. It translates the command line parameters into a route-spec of
+  the required format.
 
 The format of the config data in for the configfile or http mode (config file
-or POST request) is identical.
+or POST request) is identical: It's the route-spec as defined above.
 
-The modes for the detection of configuration updates are implemented via
-plugins. It is therefore easy to directly extend vpc-router to integrate with
-various orchestration systems. [How to write plugins](PLUGINS.md) is documented
-separately.
+### External mode plugins
 
 It is also possible to write external plugins, which live in their own
-repository. An example of this is the 'romana' plugin, which is described
-below.
+repository. There is currently one example of this:
+
+* romana: The
+  [Romana plugin](https://github.com/romana/vpcrouter-romana-plugin) provides
+  seamless integration with the [Romana project](http://romana.io/), for the
+  creation of Kubernetes and OpenStack clusters without overlays, just
+  natively routed network traffic. The vpc-router with the Romana plugin then
+  allows those clusters to span multiple VPC Availability Zones, all while
+  using native VPC networking and without being hindered by VPC's 50 route
+  limit. The Romana plugin watches the network topology knowledge from Romana
+  and translates it into the required route-spec for vpc-router.
 
 ### Mode 'configfile' 
 
@@ -167,13 +186,13 @@ mode:
 
 The used options are:
 
-* `-m configfile` tells vpc-router to take config changes from a specified route
-  spec file.
+* `-m configfile` tells vpc-router to take config changes from a specified
+  route spec file.
 * `-f` specifies the name of the route spec config file.
 * `-r` specifies the AWS region to which vpc-router should connect. Note: This
-can be omitted if vpc-router is run on an instance in the region.
+  can be omitted if vpc-router is run on an instance in the region.
 * `-v` specifies the VPC for which vpc-router should perform route updates.
-Note: This can be omitted if vpc-router is run on an instance within the VPC.
+  Note: This can be omitted if vpc-router is run on an instance within the VPC.
 
 In 'configfile' mode the `-f` option must be used to specify the route spec
 config file. It must exist when the server is started. The server then
