@@ -141,9 +141,9 @@ plugins. It is therefore easy to extend vpc-router to integrate with
 various orchestration systems. [How to write plugins](PLUGINS.md) is documented
 separately.
 
-A plugin may either accept a route-spec in the format described above, or it
+A plugin may either accept a route spec in the format described above, or it
 may be used to translate other information into the properly formatted
-route-spec.
+route spec.
 
 ### Internal mode plugins
 
@@ -151,16 +151,15 @@ Out of the box, plugins for three different configuration update modes are
 included in the vpc-router source:
 
 * configfile: Continuosly monitor a route spec configuration file for any
-  changes.
-* http: Receive updated route specs via HTTP POSTs.
+  changes. The config file should contain the route spec in exactly the format
+  described above.
+* http: Receive updated route specs via HTTP POSTs. The POSTed data should be
+  the route-spec in exactly the format described above.
 * fixedconf: With this a static config can be provided on the command line. It
   is mostly used as a simple example for plugin developers. It does work
   and might be useful in some cases, but is not commonly going to be used in
-  production. It translates the command line parameters into a route-spec of
+  production. It translates the command line parameters into a route spec of
   the required format.
-
-The format of the config data in for the configfile or http mode (config file
-or POST request) is identical: It's the route-spec as defined above.
 
 ### External mode plugins
 
@@ -175,7 +174,7 @@ repository. There is currently one example of this:
   allows those clusters to span multiple VPC Availability Zones, all while
   using native VPC networking and without being hindered by VPC's 50 route
   limit. The Romana plugin watches the network topology knowledge from Romana
-  and translates it into the required route-spec for vpc-router.
+  and translates it into the required route spec for vpc-router.
 
 ### Mode 'configfile' 
 
