@@ -280,6 +280,22 @@ monitor port 80.
 An instance is considered 'failed' if ANY of the specified sub-plugins reports
 the instance as failed.
 
+### Considering an instance as 'healthy' again
+
+If a health monitoring plugin reports an instance as 'failed', it will be
+considered 'failed' for some amount of time (the exact time depends on the
+plugin, but usually it's 10 times the selected monitoring interval, when using
+the 'multi' plugin, it will be 20 times the largest interval of the specified
+sub-plugins).
+
+The health monitoring occasionally attempts to re-check failed instances to see
+if they have recovered. If not, it will report them as failed again.
+
+If there has not been a 'failed' report about an instance within that time
+window, the instance will automatically be considered as 'healthy' again. This
+does not mean that routes are failing back to that instance, it just means that
+this instance becomes eligible to be a target for routes again.
+
 ## TODO
 
 A 'todo' list is maintained in the
