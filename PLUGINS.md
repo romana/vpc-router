@@ -105,9 +105,9 @@ host list.
 
 ## Location, naming convention and base class
 
-The 'icmpecho' and 'tcp' health monitor plugins are included. They are
-integrated health monitor plugins (included in the vpc-router source) and are
-located in the directory `vpcrouter/monitor/plugins/`.
+The 'icmpecho', 'tcp' and 'multi' health monitor plugins are included. They are
+"integrated plugins" (included in the vpc-router source) and are located in the
+directory `vpcrouter/monitor/plugins/`.
 
 The `-H` / `--health` option in the vpc-router command line chooses the health
 monitor plugin. It uses 'icmpecho' as default value. The name of the plugin has
@@ -122,4 +122,9 @@ read the code there, including the docstrings. A plugin needs to implement
 a very basic and simple API, which is defined by the `MonitorPlugin` class.
 
 The plugin class' name should be the name of the plugin, capitalized.
-Therefore, the 'icmpecho' plugin provides the `Icmpecho` class.
+Therefore, the 'icmpecho' plugin provides the `Icmpecho` class, the 'tcp'
+plugin provides the `Tcp` class, and so on.
+
+If you wish to study an example in order to start work on your own plugin, we
+would recommend you have a look at the 'tcp' plugin, which is the simplest of
+the three.

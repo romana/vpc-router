@@ -63,9 +63,11 @@ The architecture of vpc-router is simple:
   health-monitor thread with the new combined list of all hosts, via a third
   queue.
 * The configuration-watcher thread utilizes plugins, which are dynamically
-  loaded, and which are used depending on the selected mode (-m option on the
+  loaded, and which are used depending on the selected mode (`-m` option on the
   command line).
-
+* The health monitor thread also uses plugins to support different instance
+  health monitoring options (`--health` option on the command line). Those
+  plugins are conceptually very similar to the watcher plugins.
 
 ## Developing plugins
 

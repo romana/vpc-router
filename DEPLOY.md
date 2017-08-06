@@ -80,10 +80,15 @@ runs. A suitable IAM policy for the vpc-router may look like this:
 ### Security rules for health checks
 
 In its current form, vpc-router by default performs active health checks on all
-the nodes listed in the route spec, by sending ICMP Echo ("ping") requests at
-regular intervals. Please make sure that your security rules allow for ICMP
-Echo requests and responses to be exchanged.
+the instances listed in the route spec, by sending ICMP Echo ("ping") requests
+at regular intervals (`--health icmpecho` option). Please make sure that your
+security rules allow for ICMP Echo requests and responses to be exchanged.
 
 If you use different health monitoring plugins, please adjust your security
-rules accordingly. For example for the 'tcp' plugin, please make sure you open
-the port to which it attempts to connect (`--tcp_check_port` option).
+rules accordingly. For example for the 'tcp' plugin (`--health tcp` option),
+please make sure you open the port to which it attempts to connect
+(`--tcp_check_port` option).
+
+If you use the multi plugin (`--health multi`) the security rules need to be
+configured so that all specified sub plugins (`--multi_plugins ...` option)
+can perform their security checks.
