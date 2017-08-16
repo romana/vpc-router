@@ -270,18 +270,15 @@ class TestWatcherConfigfile(unittest.TestCase):
         watcher.stop_plugins(watcher_plugin, health_plugin)
 
     def test_watcher_thread(self):
-        # Monkey patch the do_one ping method of the health monitor class,
+        # Monkey patch the healthcheck method of the ICMP health monitor class,
         # since we don't really want to send out ICMP echo requests when we run
         # the tests. Will indicate failure for all IP addresses starting with
         # "3."
-        def new_do_one(self, ip, timeout, dummy_id, size):
-            if ip.startswith("3."):
-                return None    # indicates failure
-            else:
-                return 0.5     # indicates success
+        def new_do_health_checks(s, addrs):
+            return [a for a in addrs if a.startswith("3.")]
 
         # We do this in the class, before the plugin is instantiated
-        self.health_plugin_class.my_do_one = new_do_one
+        self.health_plugin_class.do_health_checks = new_do_health_checks
 
         watcher_plugin, health_plugin = \
                 watcher.start_plugins(
