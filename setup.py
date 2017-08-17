@@ -62,7 +62,7 @@ setup(
         'multiping==1.0.0',
     ],
     dependency_links     = [
-        "http://github.com/romana/mult-ping/tarball/master#egg=multiping-1.0.0"
+        "https://github.com/romana/multi-ping/tarball/master#egg=multiping-1.0.0"
     ],
     classifiers          = [
         'Programming Language :: Python',
