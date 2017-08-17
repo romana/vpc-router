@@ -160,6 +160,7 @@ class MonitorPlugin(object):
         try:
             interval_count = 0
             while True:
+                start_time = time.time()
                 # See if we should update our working set
                 new_ips = self.get_new_working_set()
                 if new_ips:
@@ -199,7 +200,11 @@ class MonitorPlugin(object):
                     interval_count = 0
                     currently_failed_ips = set()
 
-                time.sleep(self.get_monitor_interval())
+                # Wait until next monitoring interval: We deduct the time we
+                # spent in this loop.
+                end_time = time.time()
+                time.sleep(self.get_monitor_interval() -
+                           (end_time - start_time))
                 interval_count += 1
 
         except StopReceived:

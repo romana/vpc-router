@@ -20,9 +20,10 @@ limitations under the License.
 #
 
 import unittest
-import socket
 import Queue
 import time
+
+import multiping
 
 from vpcrouter                 import utils
 from vpcrouter.monitor         import common
@@ -45,13 +46,13 @@ class TestPingPlugin(unittest.TestCase):
         }
         p = icmpecho.Icmpecho(conf)
         try:
-            res = p.my_do_one("127.0.0.1", 1234, 1, 16)
-        except icmpecho.EchoPermissionError:
+            res = p.do_health_checks(["127.0.0.1"])
+        except multiping.MultiPingError:
             # We are not running as root, therefore, can't execute the
             # ping. Need to just accept that.
             print "@@@ Not running as root, can't test ping."
             return
-        self.assertTrue(res is not None)
+        self.assertEqual(len(res), 0)
 
 
 class TestTcpPlugin(unittest.TestCase):
@@ -83,30 +84,24 @@ class TestTcpPlugin(unittest.TestCase):
 class TestQueues(unittest.TestCase):
 
     def setUp(self):
-        # We monkey patch the ping function of the ping module (which the
-        # monitoring module uses) so we can run this without actually pinging
-        # servers. Our replacement ping function allows us to pre-determine for
-        # which IPs it will indicate failure: All IPs starting with
-        # _FAILED_PREFIX will result in 'None', indicating that those addresses
-        # couldn't be pinged.  Addresses starting with "333." will result in
-        # the usual socket error, which we would get if the IP address is
-        # malformed or the name cannot be resolved. For all other addresses we
-        # return a floating point value (the ping time), indicating success.
-        def new_do_one(ip, timeout, dummy_id, size):
-            if ip.startswith(_FAILED_PREFIX):
-                return None
-            elif ip.startswith("333."):
-                raise socket.gaierror()
-            else:
-                return 0.5
         conf = {
             "icmp_check_interval" : 0.1
         }
         p = icmpecho.Icmpecho(conf)
-        # Now we install this new ping function in place of the original one.
-        # Clearly, this is a white box test: We know about the inner working of
-        # the monitoring module in order to perform our monkey patch.
-        p.my_do_one = new_do_one
+
+        # We monkey patch the healthcheck function of the ping module so we can
+        # run this without actually pinging servers. Our replacement check
+        # function allows us to pre-determine for which IPs it will indicate
+        # failure: All IPs starting with _FAILED_PREFIX are added to the output
+        # (which is a list of failed IPs).
+        def new_do_health_checks(addrs):
+            return [a for a in addrs if a.startswith(_FAILED_PREFIX)]
+
+        # Now we install this new healthcheck function in place of the original
+        # one. Clearly, this is a white box test: We know about the inner
+        # working of the monitoring module in order to perform our monkey
+        # patch.
+        p.do_health_checks = new_do_health_checks
 
         # Setup the monitor thread with a small monitoring interval (all
         # local, no real pings). We get back the thread and the two
@@ -141,8 +136,6 @@ class TestQueues(unittest.TestCase):
             (["11.1.1.3", "11.2.2.3", "10.0.0.3"], ["11.1.1.3", "11.2.2.3"]),
             (["11.1.1.4", "11.2.2.4", "11.3.3.4"], ["11.1.1.4", "11.2.2.4",
                                                     "11.3.3.4"]),
-            # Now also with some malformed input
-            (["333.3.3.5", "10.2.2.5", "11.3.3.5"], ["333.3.3.5", "11.3.3.5"])
         ]
 
         for inp, expected_out in input_output:
@@ -263,7 +256,7 @@ class TestQueuesTcp(TestQueues):
             # for this malformed IP here as well, so that the test doesn't
             # fail. That's why there is the special case test for a malformed
             # IP (starting with "333.").
-            if ip.startswith(_FAILED_PREFIX) or ip.startswith("333."):
+            if ip.startswith(_FAILED_PREFIX):
                 results.append(ip)
 
         conf = {
