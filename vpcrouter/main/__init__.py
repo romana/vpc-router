@@ -22,6 +22,8 @@ import argparse
 import logging
 import sys
 
+import vpcrouter
+
 from vpcrouter                  import monitor
 from vpcrouter                  import utils
 from vpcrouter                  import watcher
@@ -199,8 +201,8 @@ def main():
                 conf.update(meta_data)
 
         try:
-            logging.info("*** Starting vpc-router in %s mode ***" %
-                         conf['mode'])
+            logging.info("*** Starting vpc-router (v%s) in %s mode ***" %
+                         (vpcrouter.__version__, conf['mode']))
             watcher.start_watcher(conf,
                                   watcher_plugin_class, health_plugin_class)
             logging.info("*** Stopping vpc-router ***")

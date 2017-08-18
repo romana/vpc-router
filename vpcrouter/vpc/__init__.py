@@ -437,7 +437,8 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
         process_route_spec_config(con, vpc_info, route_spec, failed_ips)
         con.close()
     except boto.exception.StandardError as e:
-        logging.warning("vpc-router could not set route: %s" % e.message)
+        logging.warning("vpc-router could not set route: %s - %s" %
+                        e.message, e.args)
 
     except boto.exception.NoAuthHandlerFound:
         logging.error("vpc-router could not authenticate")
