@@ -131,12 +131,12 @@ class Tcp(common.MonitorPlugin):
         """
         parser.add_argument('--tcp_check_interval',
                             dest='tcp_check_interval',
-                            required=False, default=2,
+                            required=False, default=2, type=float,
                             help="TCP health-test interval in seconds "
                                  "(only for 'tcp' health monitor plugin)")
         parser.add_argument('--tcp_check_port',
                             dest='tcp_check_port',
-                            required=False, default=22,
+                            required=False, default=22, type=int,
                             help="Port for TCP health-test, default 22 "
                                  "(only for 'tcp' health monitor plugin)")
         return ["tcp_check_interval", "tcp_check_port"]
@@ -155,12 +155,6 @@ class Tcp(common.MonitorPlugin):
             raise ArgsError("A TCP health-test interval needs to be "
                             "specified (--tcp_check_interval).")
 
-        try:
-            conf['tcp_check_interval'] = float(conf['tcp_check_interval'])
-        except Exception:
-            raise ArgsError("Specified TCP health-test interval '%s' must be "
-                            "a number." % conf['tcp_check_interval'])
-
         if not (1 <= conf['tcp_check_interval'] <= 3600):
             raise ArgsError("Specified TCP health-test interval must be "
                             "between 1 and 3600 seconds")
@@ -169,11 +163,6 @@ class Tcp(common.MonitorPlugin):
         if not conf['tcp_check_port']:
             raise ArgsError("A port for the TCP health-test needs to be "
                             "specified (--tcp_check_port).")
-        try:
-            conf['tcp_check_port'] = int(conf['tcp_check_port'])
-        except Exception:
-            raise ArgsError("Specified port for the TCP health-test '%s' "
-                            "must be a number." % conf['tcp_check_port'])
 
         if not (1 <= conf['tcp_check_port'] <= 65535):
             raise ArgsError("Specified port for TCP health-test must be "

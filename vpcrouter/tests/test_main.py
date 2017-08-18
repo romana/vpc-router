@@ -67,7 +67,8 @@ class TestArgs(unittest.TestCase):
              "conf" : {
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
                  'vpc_id': '123', 'logfile': 'foo', 'health' : 'icmpecho',
-                 'icmp_check_interval' : 2, 'port': 33289,
+                 'icmp_check_interval' : 2.0, 'port': 33289,
+                 'route_recheck_interval' : 30,
                  'region_name': 'foo'}},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile'],

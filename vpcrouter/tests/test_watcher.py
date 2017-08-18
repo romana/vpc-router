@@ -350,6 +350,21 @@ class TestWatcherConfigfile(unittest.TestCase):
              'with: 2.2.2.2,3.3.3.3,4.4.4.4'),
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
 
+        self.lc.clear()
+
+        print "======================================"
+
+        watcher._event_monitor_loop(
+            "dummy-region", "dummy-vpc",
+            watcher_plugin, health_plugin,
+            iterations=2, sleep_time=1, route_check_time_interval=1)
+
+        time.sleep(2)
+        self.lc.check(
+            ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'),
+            ('root', 'DEBUG', 'Time for regular route check'),
+            ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
+
         watcher.stop_plugins(watcher_plugin, health_plugin)
 
 

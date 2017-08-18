@@ -60,7 +60,8 @@ def _update_health_monitor_with_new_ips(route_spec, all_ips,
 
 def _event_monitor_loop(region_name, vpc_id,
                         watcher_plugin, health_plugin,
-                        iterations, sleep_time):
+                        iterations, sleep_time,
+                        route_check_time_interval=30):
     """
     Monitor queues to receive updates about new route specs or any detected
     failed IPs.
@@ -72,6 +73,11 @@ def _event_monitor_loop(region_name, vpc_id,
     loop for test purposes. Not used during normal operation. Also, for faster
     tests, sleep_time can be set to values less than 1.
 
+    The 'route_check_time_interval' arguments specifies the number of seconds
+    we allow to elapse before forcing a re-check of the VPC routes. This is so
+    that accidentally deleted routes or manually broken route tables can be
+    fixed back up again on their own.
+
     """
     q_route_spec                = watcher_plugin.get_route_spec_queue()
     q_monitor_ips, q_failed_ips = health_plugin.get_queues()
@@ -79,6 +85,12 @@ def _event_monitor_loop(region_name, vpc_id,
 
     current_route_spec = {}  # The last route spec we have seen
     all_ips = []             # Cache of IP addresses we currently know about
+
+    # Occasionally we want to recheck VPC routes even without other updates.
+    # That way, if a route is manually deleted by someone, it will be
+    # re-created on its own.
+    last_route_check_time    = time.time()
+    time_for_regular_recheck = False
     while True:
         try:
             # Get the latest messages from the route-spec monitor and the
@@ -107,7 +119,16 @@ def _event_monitor_loop(region_name, vpc_id,
             # Spec or list of failed IPs changed? Update routes...
             # We pass in the last route spec we have seen, since we are also
             # here in case we only have failed IPs, but no new route spec.
-            if new_route_spec or failed_ips:
+            # This is also called occasionally on its own, so that we can
+            # repair any damaged route tables in VPC.
+            now = time.time()
+            if route_check_time_interval:
+                time_for_regular_recheck = \
+                    (now - last_route_check_time) > route_check_time_interval
+            if new_route_spec or failed_ips or time_for_regular_recheck:
+                if not new_route_spec and not failed_ips:
+                    logging.debug("Time for regular route check")
+                last_route_check_time = now
                 vpc.handle_spec(region_name, vpc_id, current_route_spec,
                                 failed_ips if failed_ips else [])
 
@@ -196,7 +217,7 @@ def start_watcher(conf, watcher_plugin_class, health_plugin_class,
     # threads about any failed IP addresses or updated route specs.
     _event_monitor_loop(conf['region_name'], conf['vpc_id'],
                         watcher_plugin, health_plugin,
-                        iterations, sleep_time)
+                        iterations, sleep_time, conf['route_recheck_interval'])
 
     # Stopping plugins and collecting all worker threads when we are done
     stop_plugins(watcher_plugin, health_plugin)

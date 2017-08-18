@@ -66,6 +66,10 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     parser.add_argument('-v', '--vpc', dest="vpc_id",
                         required=False, default=None,
                         help="the ID of the VPC in which to operate")
+    parser.add_argument('--route_recheck_interval',
+                        dest="route_recheck_interval",
+                        required=False, default="30", type=int,
+                        help="time between regular checks of VPC route tables")
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="name of the watcher plugin")
     parser.add_argument('-H', '--health', dest='health', required=False,
@@ -74,7 +78,8 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     parser.add_argument('--verbose', dest="verbose", action='store_true',
                         help="produces more output")
 
-    arglist = ["logfile", "region_name", "vpc_id", "mode", "health", "verbose"]
+    arglist = ["logfile", "region_name", "vpc_id", "route_recheck_interval",
+               "mode", "health", "verbose"]
 
     # Let each watcher and health-monitor plugin add its own arguments.
     for plugin_class in [watcher_plugin_class, health_plugin_class]:
@@ -121,6 +126,11 @@ def _parse_args(args_list, watcher_plugin_class, health_plugin_class):
                 parser.print_help()
                 raise e
 
+    # Sanity checking of other args
+    if conf['route_recheck_interval'] < 5 and \
+                        conf['route_recheck_interval'] != 0:
+        raise ArgsError("route_recheck_interval argument must be either 0 "
+                        "or at least 5")
     return conf
 
 
