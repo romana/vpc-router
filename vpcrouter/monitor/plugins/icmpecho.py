@@ -98,7 +98,7 @@ class Icmpecho(common.MonitorPlugin):
         """
         parser.add_argument('--icmp_check_interval',
                             dest='icmp_check_interval',
-                            required=False, default=2,
+                            required=False, default=2, type=float,
                             help="ICMPecho interval in seconds "
                                  "(only for 'icmpecho' health monitor plugin)")
         return ["icmp_check_interval"]
@@ -115,12 +115,6 @@ class Icmpecho(common.MonitorPlugin):
         if not conf['icmp_check_interval']:
             raise ArgsError("An ICMPecho interval needs to be specified "
                             "(--icmp_check_interval).")
-
-        try:
-            conf['icmp_check_interval'] = float(conf['icmp_check_interval'])
-        except Exception:
-            raise ArgsError("Specified ICMPecho interval '%s' must be "
-                            "a number." % conf['icmp_check_interval'])
 
         if not (1 <= conf['icmp_check_interval'] <= 3600):
             raise ArgsError("Specified ICMPecho interval must be between "
