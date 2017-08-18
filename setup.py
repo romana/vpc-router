@@ -59,10 +59,10 @@ setup(
         'netaddr==0.7.19',
         'wsgiref==0.1.2',
         'watchdog==0.8.3',
-        'multiping==1.0.1',
+        'multiping==1.0.2',
     ],
     dependency_links     = [
-        "https://github.com/romana/multi-ping/tarball/master#egg=multiping-1.0.1"
+        "https://github.com/romana/multi-ping/tarball/master#egg=multiping-1.0.2"
     ],
     classifiers          = [
         'Programming Language :: Python',
