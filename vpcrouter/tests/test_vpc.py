@@ -128,9 +128,9 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.assertTrue(d['instance_by_id'][self.i1.id].id == self.i1.id)
         self.assertTrue(d['instance_by_id'][self.i2.id].id == self.i2.id)
 
-        self.assertTrue(vpc.find_instance_and_emi_by_ip(d, self.i1ip)[0].id ==
+        self.assertTrue(vpc.find_instance_and_eni_by_ip(d, self.i1ip)[0].id ==
                         self.i1.id)
-        self.assertTrue(vpc.find_instance_and_emi_by_ip(d, self.i2ip)[0].id ==
+        self.assertTrue(vpc.find_instance_and_eni_by_ip(d, self.i2ip)[0].id ==
                         self.i2.id)
 
     @mock_ec2_deprecated
@@ -141,8 +141,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
-        i1, eni1 = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
-        i2, eni2 = vpc.find_instance_and_emi_by_ip(d, self.i2ip)
+        i1, eni1 = vpc.find_instance_and_eni_by_ip(d, self.i1ip)
+        i2, eni2 = vpc.find_instance_and_eni_by_ip(d, self.i2ip)
 
         rt_id = d['route_tables'][0].id
 
@@ -216,7 +216,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # output later on
         con = vpc.connect_to_region("ap-southeast-2")
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
-        i, eni = vpc.find_instance_and_emi_by_ip(d, self.i1ip)
+        i, eni = vpc.find_instance_and_eni_by_ip(d, self.i1ip)
         rt_id = d['route_tables'][0].id
 
         route_spec = {
@@ -230,11 +230,40 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check(
             ('root', 'DEBUG', 'Handle route spec'),
             ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
-            ('root', 'DEBUG', u"Retrieving information for VPC '%s'" % vid),
+            ('root', 'DEBUG', "Retrieving information for VPC '%s'" % vid),
             ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
             ('root', 'INFO',
              "--- adding route in RT '%s' 10.2.0.0/16 -> %s (%s, %s)" %
              (rt_id, self.i1ip, self.i1.id, eni.id)))
+
+        # mock the get_instance_private_ip_from_route() function in vpc. Reason
+        # being: The boto mocking library (moto) doesn't handle ENIs in routes
+        # correctly. Therefore, a match against the information we get from the
+        # routes will never work. So, we provide a wrapper, which fills the
+        # instance's ENI information into the route. This means that this
+        # function now will always match. It's good for testing the 'match'
+        # part of the code.
+        old_func = vpc.get_instance_private_ip_from_route
+
+        def my_get_instance_private_ip_from_route(instance, route):
+            route.interface_id = instance.interfaces[0].id
+            return old_func(instance, route)
+
+        vpc.get_instance_private_ip_from_route = \
+                                my_get_instance_private_ip_from_route
+        self.lc.clear()
+        vpc.handle_spec("ap-southeast-2", vid, route_spec, [])
+
+        vpc.get_instance_private_ip_from_route = old_func
+
+        self.lc.check(
+            ('root', 'DEBUG', 'Handle route spec'),
+            ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
+            ('root', 'DEBUG', "Retrieving information for VPC '%s'" % vid),
+            ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
+            ('root', 'INFO',
+             "--- route exists already in RT '%s': 10.2.0.0/16 -> "
+             "%s (%s, %s)" % (rt_id, self.i1ip, self.i1.id, eni.id)))
 
 
 if __name__ == '__main__':

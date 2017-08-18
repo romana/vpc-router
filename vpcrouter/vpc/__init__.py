@@ -119,7 +119,7 @@ def get_vpc_overview(con, vpc_id, region_name):
     return d
 
 
-def find_instance_and_emi_by_ip(vpc_info, ip):
+def find_instance_and_eni_by_ip(vpc_info, ip):
     """
     Given a specific IP address, find the EC2 instance and ENI.
 
@@ -132,7 +132,7 @@ def find_instance_and_emi_by_ip(vpc_info, ip):
         for eni in instance.interfaces:
             if eni.private_ip_address == ip:
                 return instance, eni
-    raise VpcRouteSetError("Could not find instance/emi for '%s' "
+    raise VpcRouteSetError("Could not find instance/eni for '%s' "
                            "in VPC '%s'." % (ip, vpc_info['vpc'].id))
 
 
@@ -193,7 +193,7 @@ def _update_route(dcidr, router_ip, old_router_ip,
 
     """
     try:
-        instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
+        instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
 
         logging.info("--- updating existing route in RT '%s' "
                      "%s -> %s (%s, %s) (old IP: %s, reason: %s)" %
@@ -220,7 +220,7 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
 
     """
     try:
-        instance, eni = find_instance_and_emi_by_ip(vpc_info, router_ip)
+        instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
 
         logging.info("--- adding route in RT '%s' "
                      "%s -> %s (%s, %s)" %
@@ -235,6 +235,28 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
                       (route_table_id, dcidr, router_ip, e.message))
+
+
+def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
+    """
+    Return the real instance for the given IP address, if that instance is
+    different than the passed in instance or has a different eni.
+
+    If the ipaddr belongs to the same instance and eni that was passed in then
+    this returns None.
+
+    """
+    # Careful! A route may be a black-hole route, which still has instance and
+    # eni information for an instance that doesn't exist anymore. If a host was
+    # terminated and a new host got the same IP then this route won't be
+    # updated and will keep pointing to a non-existing node.  So we find the
+    # instance by IP and check that the route really points to this instance.
+    if ipaddr:
+        real_instance, real_eni = \
+                        find_instance_and_eni_by_ip(vpc_info, ipaddr)
+        if real_instance.id != instance.id  or real_eni.id != eni.id:
+            return real_instance
+    return None
 
 
 def _update_existing_routes(route_spec, failed_ips,
@@ -269,9 +291,23 @@ def _update_existing_routes(route_spec, failed_ips,
 
             hosts = route_spec.get(dcidr)       # eligible routers for CIDR
 
-            # Current router host for this CIDR/route
+            # Current router host for this CIDR/route.
             instance    = vpc_info['instance_by_id'][r.instance_id]
             ipaddr, eni = get_instance_private_ip_from_route(instance, r)
+
+            # If route points to outdated instance, set ipaddr and eni to None
+            # to signal that route needs to be updated
+            real_instance = _get_real_instance_if_mismatch(vpc_info, ipaddr,
+                                                           instance, eni)
+            if real_instance:
+                logging.info("--- obsoleted route in RT '%s' "
+                             "%s -> %s (%s, %s) (new instance with same "
+                             "IP address should be used: %s)" %
+                             (rt.id, dcidr, ipaddr, instance.id, eni.id,
+                              real_instance.id))
+                # Setting the ipaddr and eni to None signals code further down
+                # that the route must be updated.
+                ipaddr = eni = None
 
             if not hosts:
                 # The route isn't in the spec anymore and should be deleted.
@@ -359,7 +395,7 @@ def _add_missing_routes(route_spec, failed_ips, chosen_routers,
     """
     Iterate over route spec and add all the routes we haven't set yet.
 
-    This relies on the being told what routes we HAVE already. This is passed
+    This relies on being told what routes we HAVE already. This is passed
     in via the routes_in_rts dict.
 
     Furthermore, some routes may be set in some RTs, but not in others. In that
@@ -388,7 +424,7 @@ def _add_missing_routes(route_spec, failed_ips, chosen_routers,
 
 def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     """
-    Looks through the route spec and updates routes accordingly.
+    Look through the route spec and update routes accordingly.
 
     Idea: Make sure we have a route for each CIDR.
 
@@ -438,7 +474,8 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
         con.close()
     except boto.exception.StandardError as e:
         logging.warning("vpc-router could not set route: %s - %s" %
-                        e.message, e.args)
+                        (e.message, e.args))
+        raise
 
     except boto.exception.NoAuthHandlerFound:
         logging.error("vpc-router could not authenticate")
