@@ -212,6 +212,17 @@ class MonitorPlugin(object):
             return
 
     @classmethod
+    def get_version(self):
+        """
+        Return the version of the plugin.
+
+        Built-in plugins should return the string "built-in", while external
+        plugins should overwrite this and return their own version string.
+
+        """
+        return "built-in"
+
+    @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
         Callback to add command line options for this plugin to the argparse

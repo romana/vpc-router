@@ -184,6 +184,11 @@ def main():
         conf = _parse_args(sys.argv[1:],
                            watcher_plugin_class, health_plugin_class)
 
+        if not health_plugin_class or not watcher_plugin_class:
+            logging.error("Watcher plugin or health monitor plugin class "
+                          "are missing.")
+            sys.exit(1)
+
         _setup_logging(conf)
 
         # If we are on an EC2 instance then some data is already available to
@@ -201,8 +206,12 @@ def main():
                 conf.update(meta_data)
 
         try:
-            logging.info("*** Starting vpc-router (v%s) in %s mode ***" %
-                         (vpcrouter.__version__, conf['mode']))
+            logging.info(
+                "*** Starting vpc-router (%s): mode: %s (%s), "
+                "health-check: %s (%s) ***" %
+                (vpcrouter.__version__,
+                 conf['mode'], watcher_plugin_class.get_version(),
+                 health_check_name, health_plugin_class.get_version()))
             watcher.start_watcher(conf,
                                   watcher_plugin_class, health_plugin_class)
             logging.info("*** Stopping vpc-router ***")
