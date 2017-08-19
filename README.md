@@ -187,7 +187,7 @@ repository. There is currently one example of this:
 The following command starts vpc-router as a service daemon in 'configfile'
 mode:
 
-    $ ./vpc-router.py -m configfile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
+    $ vpcrouter -m configfile -f route-spec.conf -r us-east-1 -v vpc-350d6a51
 
 The used options are:
 
@@ -210,7 +210,7 @@ You can see an example route spec file in `examples/route_spec_1.conf`.
 The following command starts vpc-router as a service daemon in the 'http'
 mode. In opens a server port on which it listens for new route specs:
 
-    $ ./vpc-router.py -m http -r us-east-1 -v vpc-350d6a51
+    $ vpcrouter -m http -r us-east-1 -v vpc-350d6a51
 
 The used options are:
 
