@@ -2,7 +2,13 @@
 
 ## Installing and running the code
 
-### Option 1: Installation via setup.py
+### Option 1: Installation via pip
+
+This is the simplest way to install vpc-router:
+
+    pip install vpcrouter
+
+### Option 2: Installation via setup.py
 
 After downloading the code, run the `setup.py` script, which performs a proper
 install and puts vpcrouter in your path:
@@ -12,7 +18,7 @@ install and puts vpcrouter in your path:
     $ python setup.py install
     $ vpcrouter .......
 
-### Option 2: Running in a container
+### Option 3: Running in a container
 
 Pre-built containers for the vpc-router are provided on Quay.io. You can
 download the latest version:

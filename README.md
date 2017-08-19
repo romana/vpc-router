@@ -66,12 +66,21 @@ orchestration systems, such as Kubernetes.
 You can either run vpc-router out of the source directory, or perform a full
 install, it can run outside of the VPC or within, on a cluster node or not.
 
+### Installation via pip
+
+The vpc-router is in the Python Package Index (PyPi). Therefore, the simplest
+way to install it is just:
+
+    pip install vpcrouter
+
 ### Run vpc-router out of the source directory
 
-Just to get you started, try this: After downloading the code, create a virtual
-environment, activate it and install the required libraries. You can then use
-the `vpcrouter-runner.py` helper script to run vpc-router without a full
-install:
+If you wish to work with the vpc-router sources, or [contribute](#contributing)
+to the project, you might want to run vpc-router directly from the sources.
+
+After downloading the code, create a virtual environment, activate it and
+install the required libraries. You can then use the `vpcrouter-runner.py`
+helper script to run vpc-router without a full install:
 
     $ git clone git@github.com:paninetworks/vpc-router.git
     $ virtualenv vpcrouter
@@ -80,13 +89,10 @@ install:
     $ pip install -r requirements/deploy.txt
     $ ./vpcrouter-runner.py .....
 
-This is suitable for a first try or if you wish to develop and
-[contribute](#contributing) to vpc-router.
-
 ### Deploying in production environment
 
-Please see our documentation on [how to deploy vpc-router in
-production](DEPLOY.md), which covers issues such as:
+Please see our documentation on how to
+[deploy vpc-router in production](DEPLOY.md), which covers issues such as:
 
 * Performing a proper installation
 * IaM permissions for running on EC2 instances
