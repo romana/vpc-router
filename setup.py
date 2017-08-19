@@ -15,26 +15,23 @@ limitations under the License.
 
 """
 
-import os
+from os import path
 
 from setuptools import setup, find_packages
-
+from codecs import open
 
 import vpcrouter
 
 
-here = os.path.abspath(os.path.dirname(__file__))
+here = path.abspath(path.dirname(__file__))
 
 
-def get_readme():
-    try:
-        import pypandoc
-        return pypandoc.convert('README.md', 'rst')
-    except (IOError, ImportError):
-        return ""
-
-
-long_description = get_readme()
+try:
+    with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
+        long_description = f.read()
+except (IOError):
+    with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+        long_description = f.read()
 
 
 setup(
@@ -59,14 +56,10 @@ setup(
         'netaddr==0.7.19',
         'wsgiref==0.1.2',
         'watchdog==0.8.3',
-        'multiping==1.0.2',
-    ],
-    dependency_links     = [
-        "https://github.com/romana/multi-ping/tarball/master#egg=multiping-1.0.2"
+        'multiping>=1.0.4',
     ],
     classifiers          = [
         'Programming Language :: Python',
-        'Development Status :: 5 - Stable',
         'Natural Language :: English',
         'Environment :: No Input/Output (Daemon)',
         'Intended Audience :: System Administrators',

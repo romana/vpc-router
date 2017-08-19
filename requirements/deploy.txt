@@ -4,4 +4,4 @@ bottle==0.12.13
 netaddr==0.7.19
 wsgiref==0.1.2
 watchdog==0.8.3
--e git+git://github.com/romana/multi-ping#egg=multiping                         
+multiping>=1.0.4
