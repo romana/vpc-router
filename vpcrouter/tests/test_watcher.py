@@ -31,10 +31,10 @@ import unittest
 from testfixtures       import LogCapture
 from watchdog.observers import Observer
 
-from vpcrouter import main
-from vpcrouter import watcher
-from vpcrouter import vpc
-
+from vpcrouter                 import main
+from vpcrouter                 import watcher
+from vpcrouter                 import vpc
+from vpcrouter.main            import http_server
 from vpcrouter.watcher.plugins import configfile
 
 from . import test_common
@@ -42,7 +42,23 @@ from . import test_common
 RES = None
 
 
-class TestRouteSpec(unittest.TestCase):
+class TestBase(unittest.TestCase):
+    def lc_compare(self, should):
+        if len(should) > len(self.lc.records):
+            print "@@@ should: "
+            for l in should:
+                print l
+            print "@@@ is: "
+            for l in self.lc.records:
+                print (l.name, l.levelname, l.msg)
+
+        self.assertTrue(len(should) <= len(self.lc.records))
+        for i, ll in enumerate(should):
+            r = self.lc.records[i]
+            self.assertEqual(ll, (r.name, r.levelname, r.msg))
+
+
+class TestRouteSpec(TestBase):
 
     def setUp(self):
         self.lc = LogCapture()
@@ -72,7 +88,8 @@ class TestRouteSpec(unittest.TestCase):
             handler = configfile.RouteSpecChangeEventHandler(
                                               route_spec_fname   = "r.spec",
                                               route_spec_abspath = abs_fname,
-                                              q_route_spec       = myq)
+                                              q_route_spec       = myq,
+                                              plugin             = None)
             # Install the file observer on the directory
             observer_thread = Observer()
             observer_thread.schedule(handler, self.temp_dir)
@@ -161,7 +178,7 @@ class TestRouteSpec(unittest.TestCase):
                 self.assertEqual(expected_out, res)
 
 
-class TestWatcherConfigfile(unittest.TestCase):
+class TestWatcherConfigfile(TestBase):
 
     def additional_setup(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -217,9 +234,11 @@ class TestWatcherConfigfile(unittest.TestCase):
             f.write(json.dumps(data))
 
     def start_thread_log_tuple(self):
-        return ('root', 'INFO',
-                "Configfile watcher plugin: Starting to watch route spec file "
-                "'%s' for changes..." % self.abs_fname)
+        return [
+            ('root', 'INFO',
+             "Configfile watcher plugin: Starting to watch route spec file "
+             "'%s' for changes..." % self.abs_fname)
+        ]
 
     def change_event_log_tuple(self):
         return ('root', 'INFO',
@@ -238,13 +257,15 @@ class TestWatcherConfigfile(unittest.TestCase):
         # Config file doesn't exist yet, so we should get an error.
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
-        self.lc.check(
-            self.start_thread_log_tuple(),
+        l = self.start_thread_log_tuple()
+        l.extend([
             ('root', 'ERROR',
              "Config ignored: Cannot open file: "
              "[Errno 2] No such file or directory: '%s'" % self.abs_fname),
             ('root', 'INFO',
-             'ICMPecho health monitor plugin: Starting to watch instances.'))
+             'ICMPecho health monitor plugin: Starting to watch instances.')
+        ])
+        self.lc.check(*l)
 
         watcher.stop_plugins(watcher_plugin, health_plugin)
 
@@ -256,16 +277,18 @@ class TestWatcherConfigfile(unittest.TestCase):
                     2)
         time.sleep(1.2)
 
-        inp = "MALFORMED"
         self.lc.clear()
+        inp = "MALFORMED"
         self.write_config(inp)
 
-        time.sleep(1.0)
+        time.sleep(1)
         # Config file malformed
-        self.lc.check(
+        l = [
             self.change_event_log_tuple(),
             ('root', 'ERROR',
-             'Config ignored: Expected dictionary at top level'))
+             'Config ignored: Expected dictionary at top level')
+        ]
+        self.lc_compare(l)
 
         watcher.stop_plugins(watcher_plugin, health_plugin)
 
@@ -287,12 +310,13 @@ class TestWatcherConfigfile(unittest.TestCase):
                     2)
 
         time.sleep(2)
-        self.lc.check(
-             self.start_thread_log_tuple(),
+
+        l = self.start_thread_log_tuple()
+        l.extend([
              ('root', 'INFO',
               'ICMPecho health monitor plugin: Starting to watch instances.'),
-             ('root', 'DEBUG', 'Checking live IPs: (none alive)'))
-
+             ('root', 'DEBUG', 'Checking live IPs: (none alive)')])
+        self.lc.check(*l)
         self.lc.clear()
 
         inp = {
@@ -352,8 +376,6 @@ class TestWatcherConfigfile(unittest.TestCase):
 
         self.lc.clear()
 
-        print "======================================"
-
         watcher._event_monitor_loop(
             "dummy-region", "dummy-vpc",
             watcher_plugin, health_plugin,
@@ -400,9 +422,12 @@ class TestWatcherHttp(TestWatcherConfigfile):
         # Changing the listen port number of the server for each test, since we
         # can't reuse the socket addresses in such rapid succession
         PORT += 1
+        self.conf['port'] = PORT
+        self.http_srv = http_server.VpcRouterHttpServer(self.conf)
 
     def additional_cleanup(self):
-        pass
+        if self.http_srv:
+            self.http_srv.stop()
 
     def write_config(self, data):
         url = "http://%s:%s/route_spec" % \
@@ -410,9 +435,14 @@ class TestWatcherHttp(TestWatcherConfigfile):
         requests.post(url, data=json.dumps(data))
 
     def start_thread_log_tuple(self):
-        return ('root', 'INFO',
-                "Http watcher plugin: Starting to watch for route spec on "
-                "'localhost:%d'..." % self.conf['port'])
+        return [
+            ('root', 'INFO',
+             "HTTP server: Starting to listen for requests on "
+             "'localhost:%d'..." % self.conf['port']),
+            ('root', 'INFO',
+             "Http watcher plugin: Starting to watch for route spec on "
+             "'localhost:%d/route_spec'..." % self.conf['port'])
+        ]
 
     def change_event_log_tuple(self):
         return ('root', 'INFO', "New route spec posted")
@@ -423,15 +453,16 @@ class TestWatcherHttp(TestWatcherConfigfile):
                         self.conf,
                         self.watcher_plugin_class, self.health_plugin_class,
                         2)
-        time.sleep(0.5)
+        time.sleep(1.2)
 
         # Config file doesn't exist yet, so we should get an error.
         # Health monitor is started with a second delay, so no messages from
         # there, yet.
-        self.lc.check(
-            self.start_thread_log_tuple(),
+        l = self.start_thread_log_tuple()
+        l.append(
             ('root', 'INFO',
              'ICMPecho health monitor plugin: Starting to watch instances.'))
+        self.lc_compare(l)
 
         watcher.stop_plugins(self.watcher_plugin, self.health_plugin)
 

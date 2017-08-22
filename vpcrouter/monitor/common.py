@@ -23,6 +23,8 @@ import logging
 import Queue
 import time
 
+from vpcrouter.currentstate import CURRENT_STATE
+
 
 class StopReceived(Exception):
     """
@@ -64,6 +66,9 @@ class MonitorPlugin(object):
         self.q_monitor_ips = Queue.Queue()
         self.q_failed_ips  = Queue.Queue()
         self.thread_name   = thread_name
+
+    def get_plugin_name(self):
+        return type(self).__name__.lower()
 
     def start(self):
         """
@@ -112,6 +117,8 @@ class MonitorPlugin(object):
             except Queue.Empty:
                 # No more messages, all done reading monitor list for now
                 break
+        if new_list_of_ips is not None:
+            CURRENT_STATE.working_set = new_list_of_ips
         return new_list_of_ips
 
     def get_monitor_interval(self):
@@ -120,6 +127,26 @@ class MonitorPlugin(object):
 
         """
         raise NotImplementedError()
+
+    def get_info(self):
+        """
+        Return information about the plugin and all the config parameters in a
+        dictionary, with the plugin name as the key to a second-level
+        dictionary, which contains all the parameters:
+
+            {
+                <plugin_name> : {
+                    "version" : <version>,
+                    "params" : {
+                        <param1> : <value1>,
+                        <param2> : <value2>,
+                        ...
+                    }
+                }
+            }
+
+        """
+        return {self.get_plugin_name() : "(no info provided)"}
 
     def do_health_checks(self, list_of_ips):
         """

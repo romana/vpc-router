@@ -112,6 +112,17 @@ In order to develop or extend vpc-router, please read the [developer
 documentation](DEVELOPERS.md) for information that might be useful to get you
 started.
 
+## Built-in HTTP server to see internal state and config
+
+vpc-router comes with a built-in HTTP server. By default it listens on
+`localhost:33289`. Send a GET request (with a web-browser, curl or wget, or any
+client you wish) to `http://localhost:33290/` to receive a JSON formatted
+output with the current internal configuration of vpc-router.
+
+The listen address and port can be modified with the `-a` (address) and `-p`
+(port) command line options.
+
+
 ## Configuration
 
 ### The route spec
@@ -208,7 +219,7 @@ You can see an example route spec file in `examples/route_spec_1.conf`.
 ### Mode 'http'
 
 The following command starts vpc-router as a service daemon in the 'http'
-mode. In opens a server port on which it listens for new route specs:
+mode. It utilizes the built-in HTTP server to listen for new route specs:
 
     $ vpcrouter -m http -r us-east-1 -v vpc-350d6a51
 
@@ -221,19 +232,8 @@ can be omitted if vpc-router is run on an instance in the region.
 * `-v` specifies the VPC for which vpc-router should perform route updates.
 Note: This can be omitted if vpc-router is run on an instance within the VPC.
 
-In 'http' mode, vpc-router by default uses port 33289 and listens on localhost.
-However, you can use the `-p` (port) and `-a` ('address') options to specify a
-different listening port or address. Specifically, use `-a 0.0.0.0` to listen
-on any interface and address.
-
-There are a two URLs offered in 'http' mode:
-
-* `/route_spec`: POST a new route spec here, or GET the current route spec.
-* `/status`: GET a status overview, containing the route spec as well as the
-  current list of any failed IP addresses and currently configured routes.
-
-In 'http' mode, new route specs are POSTed to
-http://<listen-address>:<port>/route_spec
+A new route spec can be POSTed to the `/route_spec` URL. The current route spec
+can be retrieved with a GET to that URL.
 
 For example:
 

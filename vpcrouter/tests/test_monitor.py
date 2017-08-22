@@ -19,11 +19,10 @@ limitations under the License.
 # Unit tests for the monitoring module
 #
 
+import os
 import unittest
 import Queue
 import time
-
-import multiping
 
 from vpcrouter                 import utils
 from vpcrouter.monitor         import common
@@ -45,14 +44,12 @@ class TestPingPlugin(unittest.TestCase):
             "icmp_check_interval" : 2
         }
         p = icmpecho.Icmpecho(conf)
-        try:
-            res = p.do_health_checks(["127.0.0.1"])
-        except multiping.MultiPingError:
-            # We are not running as root, therefore, can't execute the
-            # ping. Need to just accept that.
+        res = p.do_health_checks(["127.0.0.1"])
+        if os.geteuid() != 0:
             print "@@@ Not running as root, can't test ping."
-            return
-        self.assertEqual(len(res), 0)
+            self.assertEqual(res, ["127.0.0.1"])
+        else:
+            self.assertEqual(len(res), 0)
 
 
 class TestTcpPlugin(unittest.TestCase):

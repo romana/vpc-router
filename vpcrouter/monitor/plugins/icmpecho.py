@@ -20,6 +20,7 @@ limitations under the License.
 #
 
 import logging
+import datetime
 import multiping
 import threading
 
@@ -35,6 +36,9 @@ class Icmpecho(common.MonitorPlugin):
     """
     def __init__(self, conf):
         super(Icmpecho, self).__init__(conf, "IcmpechoHealth")
+        self.ping_count           = 0
+        self.measurements         = []
+        self.max_num_measurements = 10
 
     def get_monitor_interval(self):
         """
@@ -42,6 +46,58 @@ class Icmpecho(common.MonitorPlugin):
 
         """
         return self.conf['icmp_check_interval']
+
+    def update_stats(self, responses, no_responses):
+        """
+        Maintain some stats about our requests.
+
+        """
+        slowest_rtt = 0.0
+        slowest_ip  = None
+        fastest_rtt = 9999999.9
+        fastest_ip  = None
+        rtt_total   = 0.0
+
+        for ip, rtt in responses.items():
+            rtt_total += rtt
+            if rtt > slowest_rtt:
+                slowest_rtt = rtt
+                slowest_ip  = ip
+            elif rtt < fastest_rtt:
+                fastest_rtt = rtt
+                fastest_ip  = ip
+
+        sorted_rtts = sorted(responses.values())
+        l           = len(sorted_rtts)
+        if l == 0:
+            median_rtt = 0.0
+        elif l % 2 == 1:
+            # Odd number: Median is the middle element
+            median_rtt = sorted_rtts[int(l / 2)]
+        else:
+            # Even number (average between two middle elements)
+            median_rtt = (sorted_rtts[int(l / 2) - 1] +
+                          sorted_rtts[int(l / 2)]) / 2.0
+
+        now = datetime.datetime.now().isoformat()
+        m = {
+            "time" : now,
+            "num_responses" : len(responses),
+            "num_no_responses" : len(no_responses),
+            "slowest" : {
+                "ip"  : slowest_ip,
+                "rtt" : slowest_rtt
+            },
+            "fastest" : {
+                "ip"  : fastest_ip,
+                "rtt" : fastest_rtt
+            },
+            "average_rtt" : rtt_total / len(responses),
+            "median_rtt" : median_rtt
+        }
+
+        self.measurements.insert(0, m)
+        self.measurements = self.measurements[:self.max_num_measurements]
 
     def do_health_checks(self, list_of_ips):
         """
@@ -61,8 +117,18 @@ class Icmpecho(common.MonitorPlugin):
         # want: For timeouts less than 1 we have no retry at all.
         num_retries = int(ping_timeout)
 
-        responses, no_responses = multiping.multi_ping(
+        try:
+            self.ping_count += len(list_of_ips)
+            responses, no_responses = multiping.multi_ping(
                                         list_of_ips, ping_timeout, num_retries)
+            self.update_stats(responses, no_responses)
+
+        except Exception as e:
+            logging.error("Exception while trying to monitor servers: %s" %
+                          str(e))
+            # Need to assume all IPs failed
+            no_responses = list_of_ips
+
         return no_responses
 
     def start(self):
@@ -90,6 +156,32 @@ class Icmpecho(common.MonitorPlugin):
         self.monitor_thread.join()
         logging.info("ICMPecho health monitor plugin: Stopped")
 
+    def get_stats(self):
+        """
+        Return dictionary of statistics that were accumulated over the running
+        time of the plugin.
+
+        """
+        return {
+            "pings_sent"   : self.ping_count,
+            "measurements" : self.measurements,
+        }
+
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "icmp_check_interval" : self.conf['icmp_check_interval'],
+                },
+                "stats" : self.get_stats()
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
@@ -99,7 +191,7 @@ class Icmpecho(common.MonitorPlugin):
         parser.add_argument('--icmp_check_interval',
                             dest='icmp_check_interval',
                             required=False, default=2, type=float,
-                            help="ICMPecho interval in seconds "
+                            help="ICMPecho interval in seconds, default 2 "
                                  "(only for 'icmpecho' health monitor plugin)")
         return ["icmp_check_interval"]
 

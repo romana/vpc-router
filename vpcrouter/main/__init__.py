@@ -27,7 +27,9 @@ import vpcrouter
 from vpcrouter                  import monitor
 from vpcrouter                  import utils
 from vpcrouter                  import watcher
+from vpcrouter.currentstate     import CURRENT_STATE
 from vpcrouter.errors           import ArgsError
+from vpcrouter.main             import http_server
 from vpcrouter.plugin_framework import load_plugin
 from vpcrouter.vpc              import get_ec2_meta_data
 
@@ -55,11 +57,13 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     parser = argparse.ArgumentParser(
                     description="VPC router: Manage routes in VPC route table")
     # General arguments
+    parser.add_argument('--verbose', dest="verbose", action='store_true',
+                        help="produces more output")
     parser.add_argument('-l', '--logfile', dest='logfile',
                         default='-',
                         help="full path name for the logfile, "
-                             "or '-' for logging to stdout "
-                             "(default: '-' (logging to stdout))"),
+                             "or '-' for logging to stdout, "
+                             "default: '-' (logging to stdout)"),
     parser.add_argument('-r', '--region', dest="region_name",
                         required=False, default=None,
                         help="the AWS region of the VPC")
@@ -69,17 +73,29 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     parser.add_argument('--route_recheck_interval',
                         dest="route_recheck_interval",
                         required=False, default="30", type=int,
-                        help="time between regular checks of VPC route tables")
+                        help="time between regular checks of VPC route "
+                             "tables, default: 30")
+    parser.add_argument('-a', '--address', dest="addr",
+                        default="localhost",
+                        help="address to listen on for HTTP requests, "
+                             "default: localhost")
+    parser.add_argument('-p', '--port', dest="port",
+                        default="33289", type=int,
+                        help="port to listen on for HTTP requests, "
+                             "default: 33289")
     parser.add_argument('-m', '--mode', dest='mode', required=True,
                         help="name of the watcher plugin")
     parser.add_argument('-H', '--health', dest='health', required=False,
                         default=monitor.MONITOR_DEFAULT_PLUGIN,
-                        help="name of the health-check plugin")
-    parser.add_argument('--verbose', dest="verbose", action='store_true',
-                        help="produces more output")
+                        help="name of the health-check plugin, "
+                             "default: %s" % monitor.MONITOR_DEFAULT_PLUGIN)
 
     arglist = ["logfile", "region_name", "vpc_id", "route_recheck_interval",
-               "mode", "health", "verbose"]
+               "verbose", "addr", "port", "mode", "health"]
+
+    # Inform the CurrentState object of the main config parameter names, which
+    # should be rendered in an overview.
+    CURRENT_STATE.main_param_names = list(arglist)
 
     # Let each watcher and health-monitor plugin add its own arguments.
     for plugin_class in [watcher_plugin_class, health_plugin_class]:
@@ -131,6 +147,19 @@ def _parse_args(args_list, watcher_plugin_class, health_plugin_class):
                         conf['route_recheck_interval'] != 0:
         raise ArgsError("route_recheck_interval argument must be either 0 "
                         "or at least 5")
+
+    if not 0 < conf['port'] < 65535:
+        raise ArgsError("Invalid listen port '%d' for built-in http server." %
+                        conf['port'])
+
+    if not conf['addr'] == "localhost":
+        # Check if a proper address was specified (already raises a suitable
+        # ArgsError if not)
+        utils.ip_check(conf['addr'])
+
+    # Store a reference to the config dict in the current state
+    CURRENT_STATE.conf = conf
+
     return conf
 
 
@@ -216,14 +245,20 @@ def main():
                 conf.update(meta_data)
 
         try:
-            logging.info(
-                "*** Starting vpc-router (%s): mode: %s (%s), "
-                "health-check: %s (%s) ***" %
-                (vpcrouter.__version__,
-                 conf['mode'], watcher_plugin_class.get_version(),
-                 health_check_name, health_plugin_class.get_version()))
+            info_str = "vpc-router (%s): mode: %s (%s), " \
+                       "health-check: %s (%s)" % \
+                       (vpcrouter.__version__,
+                        conf['mode'], watcher_plugin_class.get_version(),
+                        health_check_name, health_plugin_class.get_version())
+            logging.info("*** Starting %s ***" % info_str)
+            CURRENT_STATE.versions = info_str
+
+            http_srv = http_server.VpcRouterHttpServer(conf)
+            CURRENT_STATE._vpc_router_http = http_srv
+
             watcher.start_watcher(conf,
                                   watcher_plugin_class, health_plugin_class)
+            http_srv.stop()
             logging.info("*** Stopping vpc-router ***")
         except Exception as e:
             import traceback

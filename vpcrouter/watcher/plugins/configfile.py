@@ -19,6 +19,7 @@ limitations under the License.
 # A watcher plugin for observing a route spec config file for changes.
 #
 
+import datetime
 import json
 import logging
 import os
@@ -40,10 +41,12 @@ class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
         self._route_spec_fname   = kwargs['route_spec_fname']
         self._route_spec_abspath = kwargs['route_spec_abspath']
         self._q_route_spec       = kwargs['q_route_spec']
+        self._plugin             = kwargs['plugin']
 
         del kwargs['route_spec_fname']
         del kwargs['route_spec_abspath']
         del kwargs['q_route_spec']
+        del kwargs['plugin']
 
         super(RouteSpecChangeEventHandler, self).__init__(*args, **kwargs)
 
@@ -55,6 +58,9 @@ class RouteSpecChangeEventHandler(watchdog.events.FileSystemEventHandler):
             try:
                 route_spec = read_route_spec_config(self._route_spec_fname)
                 self._q_route_spec.put(route_spec)
+                if self._plugin:
+                    self._plugin.last_route_spec_update = \
+                                            datetime.datetime.now()
             except ValueError as e:
                 # In case of error in the config file, we don't send out a
                 # message with a broken or empty list. Probably just temporary,
@@ -107,6 +113,10 @@ class Configfile(common.WatcherPlugin):
     -f / --file: The name of the config file, which should be monitored.
 
     """
+    def __init__(self, *args, **kwargs):
+        super(Configfile, self).__init__(*args, **kwargs)
+        self.last_route_spec_update = None
+
     def start(self):
         """
         Start the configfile change monitoring thread.
@@ -123,6 +133,7 @@ class Configfile(common.WatcherPlugin):
         try:
             route_spec = read_route_spec_config(fname)
             if route_spec:
+                self.last_route_spec_update = datetime.datetime.now()
                 self.q_route_spec.put(route_spec)
         except ValueError as e:
             logging.warning("Cannot parse route spec: %s" % str(e))
@@ -137,7 +148,8 @@ class Configfile(common.WatcherPlugin):
         handler = RouteSpecChangeEventHandler(
                                     route_spec_fname   = fname,
                                     route_spec_abspath = abspath,
-                                    q_route_spec       = self.q_route_spec)
+                                    q_route_spec       = self.q_route_spec,
+                                    plugin             = self)
         self.observer_thread = watchdog.observers.Observer()
         self.observer_thread.name = "ConfMon"
         self.observer_thread.schedule(handler, parent_dir)
@@ -152,13 +164,32 @@ class Configfile(common.WatcherPlugin):
         self.observer_thread.join()
         logging.info("Configfile watcher plugin: Stopped")
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "file" : self.conf['file']
+                },
+                "stats" : {
+                    "last_route_spec_update" :
+                        self.last_route_spec_update.isoformat()
+                        if self.last_route_spec_update else "(no update, yet)"
+                }
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
         Arguments for the configfile mode.
 
         """
-        parser.add_argument('-f', '--file', dest='file',
+        parser.add_argument('-f', '--file', dest='file', required=True,
                             help="config file for routing groups "
                                  "(only in configfile mode)")
         return ["file"]
@@ -169,8 +200,6 @@ class Configfile(common.WatcherPlugin):
         Sanity checks for options needed for configfile mode.
 
         """
-        if not conf['file']:
-            raise ArgsError("A config file needs to be specified (-f).")
         try:
             # Check we have access to the config file
             f = open(conf['file'], "r")
