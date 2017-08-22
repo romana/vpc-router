@@ -22,6 +22,10 @@ import datetime
 import json
 
 
+class StateError(Exception):
+    pass
+
+
 class _CurrentState(object):
     """
     Holds the current state of the system.
@@ -33,7 +37,7 @@ class _CurrentState(object):
     def __init__(self):
         self.starttime        = datetime.datetime.now()
         self.versions         = ""
-        self.plugins          = {}
+        self.plugins          = []
         self.failed_ips       = []
         self.working_set      = []
         self.route_spec       = {}
@@ -42,18 +46,29 @@ class _CurrentState(object):
         self.main_param_names = []
         self._vpc_router_http = None
 
-    def add_plugin_info(self, plugin_info):
-        """
-        Called for every plugin (watcher or health), so we can show information
-        about each plugin in the output as well.
+        # The following top-level items are rendered as links and can be
+        # accessed with separate requests.
+        self.top_level_links  = ["", "ips", "plugins", "route_info"]
 
-        The content of this information is up to the plugin, but by convention
-        it's a dictionary with the plugin name as a single key and a further
-        dictionary as value, which contains the plugin version and all plugin
-        specific parameters.
+    def add_plugin(self, plugin):
+        """
+        Every plugin (watcher and health) is added so we can later get live
+        info from each plugin.
 
         """
-        self.plugins.update(plugin_info)
+        self.plugins.append(plugin)
+
+    def get_plugins_info(self):
+        """
+        Collect the current live info from all the registered plugins.
+
+        Return a dictionary, keyed on the plugin name.
+
+        """
+        d = {}
+        for p in self.plugins:
+            d.update(p.get_info())
+        return d
 
     def render_main_params(self):
         """
@@ -63,25 +78,98 @@ class _CurrentState(object):
         """
         return {n: self.conf[n] for n in self.main_param_names}
 
-    def as_json(self, with_indent=False):
-        return json.dumps(
-                {
-                    "SERVER"             : {
-                        "version"        : self.versions,
-                        "start_time"     : self.starttime.isoformat(),
-                        "current_time"   : datetime.datetime.now().isoformat()
-                    },
-                    "params" : self.render_main_params(),
-                    "plugins"            : self.plugins,
-                    "ips"                : {
-                        "failed_ips"     : self.failed_ips,
-                        "working_set"    : self.working_set,
-                    },
-                    "route_info"         : {
-                        "route_spec"     : self.route_spec,
-                        "routes"         : self.routes,
-                    }
-                }, indent=4 if with_indent else None)
+    def get_state_repr(self, path):
+        """
+        Returns the current state, or sub-state, depending on the path.
+
+        """
+        if path == "ips":
+            return {
+                "failed_ips"     : self.failed_ips,
+                "working_set"    : self.working_set,
+            }
+
+        if path == "route_info":
+            return {
+                "route_spec"     : self.route_spec,
+                "routes"         : self.routes,
+            }
+
+        if path == "plugins":
+            return self.get_plugins_info()
+
+        if path == "":
+            return {
+                "SERVER"             : {
+                    "version"        : self.versions,
+                    "start_time"     : self.starttime.isoformat(),
+                    "current_time"   : datetime.datetime.now().isoformat()
+                },
+                "params" : self.render_main_params(),
+                "plugins"            : {"_href" : "/plugins"},
+                "ips"                : {"_href" : "/ips"},
+                "route_info"         : {"_href" : "/route_info"}
+            }
+
+    def as_json(self, path="", with_indent=False):
+        """
+        Return a rendering of the current state in JSON.
+
+        """
+        if path not in self.top_level_links:
+            raise StateError("Unknown path")
+
+        return json.dumps(self.get_state_repr(path),
+                          indent=4 if with_indent else None)
+
+    def as_html(self, path=""):
+        """
+        Return a rendering of the current state in HTML.
+
+        """
+        if path not in self.top_level_links:
+            raise StateError("Unknown path")
+
+        header = """
+        <html>
+            <head>
+                <title>VPC-router state</title>
+            </head>
+            <body>
+                <h3>VPC-router state</h3>
+                <hr>
+                <font face="courier">
+        """
+
+        footer = """
+                </font>
+            </body>
+        </html>
+        """
+
+        rep = self.get_state_repr(path)
+
+        def make_links(rep):
+            # Recursively create clickable links for _href elements
+            for e, v in rep.items():
+                if e == "_href":
+                    v = '<a href=%s>%s</a>' % (v, v)
+                    rep[e] = v
+                else:
+                    if type(v) == dict:
+                        make_links(v)
+
+        make_links(rep)
+
+        rep_str_lines = json.dumps(rep, indent=4).split("\n")
+        buf = []
+        for l in rep_str_lines:
+            # Replace leading spaces with '&nbsp;'
+            num_spaces = len(l) - len(l.lstrip())
+            l = "&nbsp;" * num_spaces + l[num_spaces:]
+            buf.append(l)
+
+        return "%s%s%s" % (header, "<br>\n".join(buf), footer)
 
 
 # The module doesn't get reloaded, so no need to check, can just initialize

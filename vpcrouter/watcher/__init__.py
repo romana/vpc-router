@@ -212,8 +212,8 @@ def start_watcher(conf, watcher_plugin_class, health_plugin_class,
     watcher_plugin, health_plugin = \
             start_plugins(conf, watcher_plugin_class, health_plugin_class,
                           sleep_time)
-    CURRENT_STATE.add_plugin_info(watcher_plugin.get_info())
-    CURRENT_STATE.add_plugin_info(health_plugin.get_info())
+    CURRENT_STATE.add_plugin(watcher_plugin)
+    CURRENT_STATE.add_plugin(health_plugin)
 
     # Start the loop to process messages from the monitoring
     # threads about any failed IP addresses or updated route specs.

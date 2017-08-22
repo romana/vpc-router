@@ -88,7 +88,8 @@ class TestRouteSpec(TestBase):
             handler = configfile.RouteSpecChangeEventHandler(
                                               route_spec_fname   = "r.spec",
                                               route_spec_abspath = abs_fname,
-                                              q_route_spec       = myq)
+                                              q_route_spec       = myq,
+                                              plugin             = None)
             # Install the file observer on the directory
             observer_thread = Observer()
             observer_thread.schedule(handler, self.temp_dir)

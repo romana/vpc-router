@@ -44,12 +44,6 @@ class TestHttpServer(unittest.TestCase):
         r = requests.get("http://localhost:33445")
         d = json.loads(r.content)
         self.assertEqual(d['params'], {})
-        self.assertEqual(d['plugins'], {})
-        self.assertEqual(d['route_info'], {
-                                              "routes": {},
-                                              "route_spec": {}
-                                          })
-        self.assertEqual(d['ips'], {
-                                       "failed_ips": [],
-                                       "working_set": []
-                                   })
+        self.assertEqual(d['plugins'], {'_href': '/plugins'})
+        self.assertEqual(d['route_info'], {'_href': '/route_info'})
+        self.assertEqual(d['ips'], {'_href': '/ips'})

@@ -26,7 +26,7 @@ import threading
 
 from functools import wraps
 
-from vpcrouter.currentstate import CURRENT_STATE
+from vpcrouter.currentstate import CURRENT_STATE, StateError
 
 
 # Need to direct Bottle's logs to our standard logger. In the time honoured
@@ -84,30 +84,56 @@ class MyWSGIRefServer(bottle.ServerAdapter):
             self.server.shutdown()
 
 
-@APP.route('/', method='GET')
-def handle_status_request():
+def handle_request(path):
     """
     Return the current status.
 
     """
-    ret = None
     accept = bottle.request.get_header("accept", default="text/plain")
 
     bottle.response.status = 200
 
-    if "application/json" in accept:
-        ret = CURRENT_STATE.as_json()
-        bottle.response.content_type = "application/json"
+    try:
+        if "text/html" in accept:
+            ret = CURRENT_STATE.as_html(path=path)
+            bottle.response.content_type = "text/html"
 
-    elif "text/" in accept or "*/*" in accept:
-        ret = CURRENT_STATE.as_json(with_indent=True)
-        bottle.response.content_type = "text/plain"
+        elif "application/json" in accept:
+            ret = CURRENT_STATE.as_json(path=path)
+            bottle.response.content_type = "application/json"
 
-    else:
-        bottle.response.status = 407
-        ret = "Cannot render data in acceptable content type"
+        elif "text/" in accept or "*/*" in accept:
+            ret = CURRENT_STATE.as_json(path=path, with_indent=True)
+            bottle.response.content_type = "text/plain"
+
+        else:
+            bottle.response.status = 407
+            ret = "Cannot render data in acceptable content type"
+    except StateError:
+        bottle.response.status = 404
+        ret = "Requested state component not found"
 
     return ret
+
+
+@APP.route('/', method='GET')
+def handle_root_request():
+    return handle_request("")
+
+
+@APP.route('/ips', method='GET')
+def handle_ips_request():
+    return handle_request("ips")
+
+
+@APP.route('/plugins', method='GET')
+def handle_plugins_request():
+    return handle_request("plugins")
+
+
+@APP.route('/route_info', method='GET')
+def handle_route_info_request():
+    return handle_request("route_info")
 
 
 class VpcRouterHttpServer(object):
