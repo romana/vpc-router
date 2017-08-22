@@ -178,6 +178,24 @@ class Multi(common.MonitorPlugin):
         """
         return self.my_wait_interval
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        plugin_infos = {}
+        for pc in self.plugins:
+            plugin_infos.update(pc.get_info())
+        return {
+            self.get_plugin_name() : {
+                "version"     : self.get_version(),
+                "sub-plugins" : plugin_infos,
+                "params" : {
+                    "multi_plugins" : self.conf['multi_plugins']
+                },
+            }
+        }
+
     def start_monitoring(self):
         """
         Pass IP lists to monitor sub-plugins and get results from them.

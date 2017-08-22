@@ -61,6 +61,9 @@ class WatcherPlugin(object):
         self.conf         = conf
         self.q_route_spec = Queue.Queue()
 
+    def get_plugin_name(self):
+        return type(self).__name__.lower()
+
     def start(self):
         """
         Start the config watch thread or process.
@@ -74,6 +77,23 @@ class WatcherPlugin(object):
 
         """
         raise NotImplementedError()
+
+    def get_info(self):
+        """
+        Return information about the plugin and all the config parameters in a
+        dictionary, with the plugin name as the key to a second-level
+        dictionary, which contains all the parameters:
+
+            {
+                <plugin_name> : {
+                    <param1> : <value1>,
+                    <param2> : <value2>,
+                    ...
+                }
+            }
+
+        """
+        return {self.get_plugin_name() : "(no info provided)"}
 
     def get_route_spec_queue(self):
         """

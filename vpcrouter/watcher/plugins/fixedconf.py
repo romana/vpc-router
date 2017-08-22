@@ -22,7 +22,6 @@ limitations under the License.
 import logging
 
 from vpcrouter         import utils
-from vpcrouter.errors  import ArgsError
 from vpcrouter.watcher import common
 
 
@@ -32,8 +31,8 @@ class Fixedconf(common.WatcherPlugin):
 
     This plugin adds two command line arguments to vpc-router:
 
-    -C / --cidr:  The route CIDR
-    -H / --hosts: A list of IP addresses of eligible routers, separated by ':'
+    --fixed_cidr:  The route CIDR
+    --fixed_hosts: A list of IP addresses of eligible routers, separated by ':'
 
     """
     def start(self):
@@ -51,8 +50,8 @@ class Fixedconf(common.WatcherPlugin):
 
         # The configuration provided on the command line is available to every
         # plugin. Here we are reading our own parameters.
-        cidr       = self.conf['cidr']
-        hosts      = self.conf['hosts'].split(":")
+        cidr       = self.conf['fixed_cidr']
+        hosts      = self.conf['fixed_hosts'].split(":")
         route_spec = {cidr : hosts}
         try:
             # Probably don't really have to parse the route spec (sanity check)
@@ -72,6 +71,21 @@ class Fixedconf(common.WatcherPlugin):
         # We didn't start a thread, so we don't really have anything to do here
         logging.info("Fixedconf watcher plugin: Stopped")
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "fixed_cidr"  : self.conf['fixed_cidr'],
+                    "fixed_hosts" : self.conf['fixed_hosts']
+                }
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
@@ -79,13 +93,13 @@ class Fixedconf(common.WatcherPlugin):
         parser.
 
         """
-        parser.add_argument('-C', '--cidr', dest="cidr",
+        parser.add_argument('--fixed_cidr', dest="fixed_cidr", required=True,
                             help="specify the route CIDR "
                                  "(only in fixedconf mode)")
-        parser.add_argument('-H', '--hosts', dest="hosts",
+        parser.add_argument('--fixed_hosts', dest="fixed_hosts", required=True,
                             help="list of host IPs, separated by ':' "
                                  "(only in fixedconf mode)")
-        return ["cidr", "hosts"]
+        return ["fixed_cidr", "fixed_hosts"]
 
     @classmethod
     def check_arguments(cls, conf):
@@ -94,15 +108,9 @@ class Fixedconf(common.WatcherPlugin):
         parameters.
 
         """
-        if not conf['cidr']:
-            raise ArgsError("A CIDR needs to be specified (-C or --cidr)")
         # Perform sanity checking on CIDR
-        utils.ip_check(conf['cidr'], netmask_expected=True)
+        utils.ip_check(conf['fixed_cidr'], netmask_expected=True)
 
-        if not conf['hosts']:
-            raise ArgsError("A hosts list needs to be specified "
-                            "as lis of IP addresses, separated by ':' "
-                            "(-H or --hosts)")
         # Perform sanity checking on host list
-        for host in conf['hosts'].split(":"):
+        for host in conf['fixed_hosts'].split(":"):
             utils.ip_check(host)

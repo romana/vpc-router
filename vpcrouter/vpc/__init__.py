@@ -205,7 +205,7 @@ def _update_route(dcidr, router_ip, old_router_ip,
                     destination_cidr_block = dcidr,
                     instance_id            = instance.id,
                     interface_id           = eni.id)
-        CURRENT_STATE['routes'][dcidr] = \
+        CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
 
     except VpcRouteSetError as e:
@@ -229,7 +229,7 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
                          destination_cidr_block = dcidr,
                          instance_id            = instance.id,
                          interface_id           = eni.id)
-        CURRENT_STATE['routes'][dcidr] = \
+        CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
     except VpcRouteSetError as e:
         logging.error("*** failed to add route in RT '%s' "
@@ -317,8 +317,8 @@ def _update_existing_routes(route_spec, failed_ips,
                               eni.id if eni else "(unknown)"))
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
-                if dcidr in CURRENT_STATE['routes']:
-                    del CURRENT_STATE['routes'][dcidr]
+                if dcidr in CURRENT_STATE.routes:
+                    del CURRENT_STATE.routes[dcidr]
 
                 continue
 

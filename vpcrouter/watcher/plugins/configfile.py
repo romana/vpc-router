@@ -152,13 +152,27 @@ class Configfile(common.WatcherPlugin):
         self.observer_thread.join()
         logging.info("Configfile watcher plugin: Stopped")
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "file" : self.conf['file']
+                }
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
         Arguments for the configfile mode.
 
         """
-        parser.add_argument('-f', '--file', dest='file',
+        parser.add_argument('-f', '--file', dest='file', required=True,
                             help="config file for routing groups "
                                  "(only in configfile mode)")
         return ["file"]
@@ -169,8 +183,6 @@ class Configfile(common.WatcherPlugin):
         Sanity checks for options needed for configfile mode.
 
         """
-        if not conf['file']:
-            raise ArgsError("A config file needs to be specified (-f).")
         try:
             # Check we have access to the config file
             f = open(conf['file'], "r")

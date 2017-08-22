@@ -123,6 +123,21 @@ class Tcp(common.MonitorPlugin):
         self.monitor_thread.join()
         logging.info("TCP health monitor plugin: Stopped")
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "tcp_check_interval" : self.conf['tcp_check_interval'],
+                    "tcp_check_port"     : self.conf['tcp_check_port']
+                }
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
@@ -132,7 +147,8 @@ class Tcp(common.MonitorPlugin):
         parser.add_argument('--tcp_check_interval',
                             dest='tcp_check_interval',
                             required=False, default=2, type=float,
-                            help="TCP health-test interval in seconds "
+                            help="TCP health-test interval in seconds, "
+                                 "default 2 "
                                  "(only for 'tcp' health monitor plugin)")
         parser.add_argument('--tcp_check_port',
                             dest='tcp_check_port',

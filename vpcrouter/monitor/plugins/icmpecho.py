@@ -61,8 +61,15 @@ class Icmpecho(common.MonitorPlugin):
         # want: For timeouts less than 1 we have no retry at all.
         num_retries = int(ping_timeout)
 
-        responses, no_responses = multiping.multi_ping(
+        try:
+            responses, no_responses = multiping.multi_ping(
                                         list_of_ips, ping_timeout, num_retries)
+        except Exception as e:
+            logging.error("Exception while trying to monitor servers: %s" %
+                          str(e))
+            # Need to assume all IPs failed
+            no_responses = list_of_ips
+
         return no_responses
 
     def start(self):
@@ -90,6 +97,20 @@ class Icmpecho(common.MonitorPlugin):
         self.monitor_thread.join()
         logging.info("ICMPecho health monitor plugin: Stopped")
 
+    def get_info(self):
+        """
+        Return plugin information.
+
+        """
+        return {
+            self.get_plugin_name() : {
+                "version" : self.get_version(),
+                "params" : {
+                    "icmp_check_interval" : self.conf['icmp_check_interval'],
+                }
+            }
+        }
+
     @classmethod
     def add_arguments(cls, parser, sys_arg_list=None):
         """
@@ -99,7 +120,7 @@ class Icmpecho(common.MonitorPlugin):
         parser.add_argument('--icmp_check_interval',
                             dest='icmp_check_interval',
                             required=False, default=2, type=float,
-                            help="ICMPecho interval in seconds "
+                            help="ICMPecho interval in seconds, default 2 "
                                  "(only for 'icmpecho' health monitor plugin)")
         return ["icmp_check_interval"]
 

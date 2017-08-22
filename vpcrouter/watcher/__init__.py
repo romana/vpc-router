@@ -101,11 +101,11 @@ def _event_monitor_loop(region_name, vpc_id,
 
             if failed_ips:
                 # Store the failed IPs in the shared state
-                CURRENT_STATE['failed_ips'] = failed_ips
+                CURRENT_STATE.failed_ips = failed_ips
 
             if new_route_spec:
                 # Store the new route spec in the shared state
-                CURRENT_STATE['route_spec'] = new_route_spec
+                CURRENT_STATE.route_spec = new_route_spec
                 current_route_spec = new_route_spec
                 # Need to communicate a new set of IPs to the health
                 # monitoring thread, in case the list changed. The list of
@@ -211,7 +211,9 @@ def start_watcher(conf, watcher_plugin_class, health_plugin_class,
     # and return the thread handles and message queues in a thread-info dict.
     watcher_plugin, health_plugin = \
             start_plugins(conf, watcher_plugin_class, health_plugin_class,
-                           sleep_time)
+                          sleep_time)
+    CURRENT_STATE.add_plugin_info(watcher_plugin.get_info())
+    CURRENT_STATE.add_plugin_info(health_plugin.get_info())
 
     # Start the loop to process messages from the monitoring
     # threads about any failed IP addresses or updated route specs.
