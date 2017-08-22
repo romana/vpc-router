@@ -136,6 +136,11 @@ def handle_route_info_request():
     return handle_request("route_info")
 
 
+@APP.route('/vpc', method='GET')
+def handle_route_vpc_request():
+    return handle_request("vpc")
+
+
 class VpcRouterHttpServer(object):
     """
     Implements a simple HTTP request handler to get information about current

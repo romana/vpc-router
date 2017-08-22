@@ -42,13 +42,14 @@ class _CurrentState(object):
         self.working_set      = []
         self.route_spec       = {}
         self.routes           = {}
+        self.vpc_state        = {}
         self.conf             = None
         self.main_param_names = []
         self._vpc_router_http = None
 
         # The following top-level items are rendered as links and can be
         # accessed with separate requests.
-        self.top_level_links  = ["", "ips", "plugins", "route_info"]
+        self.top_level_links  = ["", "ips", "plugins", "route_info", "vpc"]
 
     def add_plugin(self, plugin):
         """
@@ -98,6 +99,9 @@ class _CurrentState(object):
         if path == "plugins":
             return self.get_plugins_info()
 
+        if path == "vpc":
+            return self.vpc_state
+
         if path == "":
             return {
                 "SERVER"             : {
@@ -108,7 +112,8 @@ class _CurrentState(object):
                 "params" : self.render_main_params(),
                 "plugins"            : {"_href" : "/plugins"},
                 "ips"                : {"_href" : "/ips"},
-                "route_info"         : {"_href" : "/route_info"}
+                "route_info"         : {"_href" : "/route_info"},
+                "vpc"                : {"_href" : "/vpc"}
             }
 
     def as_json(self, path="", with_indent=False):

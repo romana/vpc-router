@@ -19,6 +19,7 @@ limitations under the License.
 # Functions dealing with VPC.
 #
 
+import datetime
 import logging
 import random
 
@@ -186,6 +187,19 @@ def _choose_from_hosts(ip_list, failed_ips):
     return None
 
 
+def _rt_state_update(route_table_id, dcidr, router_ip="(none)",
+                     instance_id="(none)", eni_id="(none)",
+                     old_router_ip="(none)", msg="(none)"):
+    """
+    Store a message about a VPC route in the current state.
+
+    """
+    buf = "inst: %s, eni: %s, r_ip: %-15s, o_r_ip: %-15s, msg: %s" % \
+          (instance_id, eni_id, router_ip, old_router_ip, msg)
+    CURRENT_STATE.vpc_state.setdefault('route_tables', {}). \
+                            setdefault(route_table_id, {})[dcidr] = buf
+
+
 def _update_route(dcidr, router_ip, old_router_ip,
                   vpc_info, con, route_table_id, update_reason):
     """
@@ -207,11 +221,14 @@ def _update_route(dcidr, router_ip, old_router_ip,
                     interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
-
     except VpcRouteSetError as e:
-        logging.error("*** failed to update route in RT '%s' "
-                      "%s -> %s (%s)" %
-                      (route_table_id, dcidr, old_router_ip, e.message))
+        msg = "*** failed to update route in RT '%s' %s -> %s (%s)" % \
+              (route_table_id, dcidr, old_router_ip, e.message)
+        update_reason += " [ERROR update route: %s]" % e.message
+        logging.error(msg)
+
+    _rt_state_update(route_table_id, dcidr, router_ip, instance.id, eni.id,
+                     old_router_ip, update_reason)
 
 
 def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
@@ -231,10 +248,16 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
                          interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
+        msg = "Added route"
+
     except VpcRouteSetError as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
                       (route_table_id, dcidr, router_ip, e.message))
+        msg = "[ERROR add route: %s]" % e.message
+
+    _rt_state_update(route_table_id, dcidr, router_ip, instance.id, eni.id,
+                     msg=msg)
 
 
 def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
@@ -286,6 +309,8 @@ def _update_existing_routes(route_spec, failed_ips,
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
                 # aren't attached to a particular instance. We skip those.
+                _rt_state_update(rt.id, dcidr,
+                                 msg="Ignored: Note a route to an instance")
                 continue
             routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
 
@@ -346,7 +371,6 @@ def _update_existing_routes(route_spec, failed_ips,
                                                     not cant_use_ipaddr:
                 # Haven't seen it before, or points to same router AND
                 # router is healthy: All good
-
                 if not stored_router_ip:
                     # Remember this IP as a suitable router for CIDR
                     chosen_routers[dcidr] = ipaddr
@@ -354,12 +378,17 @@ def _update_existing_routes(route_spec, failed_ips,
                              "%s -> %s (%s, %s)" %
                              (rt.id, dcidr,
                               ipaddr, instance.id, eni.id))
+                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                                 msg="Current: Route exist and up to date")
                 continue
 
             if stored_router_ip == NONE_HEALTHY:
                 # We've tried to set a route for this before, but
                 # couldn't find any health hosts. Can't do anything and
                 # need to skip.
+                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                                 msg="None healthy, black hole: "
+                                     "Determined earlier")
                 continue
 
             if stored_router_ip:
@@ -447,6 +476,12 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # Need to remember the routes we saw in different RTs, so that we can later
     # add them, if needed.
     routes_in_rts  = {}
+
+    CURRENT_STATE.vpc_state.setdefault("time", datetime.datetime.now())
+
+    # Passed through the functions and filled in, state accumulates information
+    # about all the routes we encounted in the VPC and what we are doing with
+    # them. This is then available in the CURRENT_STATE
     chosen_routers = _update_existing_routes(route_spec, failed_ips,
                                              vpc_info, con, routes_in_rts)
 
