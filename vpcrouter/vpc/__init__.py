@@ -477,7 +477,8 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # add them, if needed.
     routes_in_rts  = {}
 
-    CURRENT_STATE.vpc_state.setdefault("time", datetime.datetime.now())
+    CURRENT_STATE.vpc_state.setdefault("time",
+                                       datetime.datetime.now().isoformat())
 
     # Passed through the functions and filled in, state accumulates information
     # about all the routes we encounted in the VPC and what we are doing with
