@@ -22,7 +22,9 @@ limitations under the License.
 
 import bottle
 import logging
+import socket
 import threading
+import time
 
 from functools import wraps
 
@@ -68,6 +70,12 @@ APP.install(log_to_logger)
 class MyWSGIRefServer(bottle.ServerAdapter):
     server = None
 
+    def __init__(self, *args, **kwargs):
+        if 'romana_http' in kwargs:
+            self.romana_http = kwargs['romana_http']
+            del kwargs['romana_http']
+        super(MyWSGIRefServer, self).__init__(*args, **kwargs)
+
     def run(self, handler):
         from wsgiref.simple_server import make_server, WSGIRequestHandler
         if self.quiet:
@@ -75,9 +83,16 @@ class MyWSGIRefServer(bottle.ServerAdapter):
                 def log_request(*args, **kw):
                     pass
             self.options['handler_class'] = QuietHandler
-        self.server = make_server(self.host, self.port, handler,
-                                  **self.options)
-        self.server.serve_forever()
+        try:
+            self.server = make_server(self.host, self.port, handler,
+                                      **self.options)
+            self.romana_http.wsgi_server_started = True
+            logging.info("HTTP server: Started to listen...")
+            self.server.serve_forever()
+        except socket.error as e:
+            logging.fatal("HTTP server: Cannot open socket "
+                          "(error %d: %s)... " %
+                          (e.errno, e.strerror))
 
     def stop(self):
         if self.server:
@@ -154,7 +169,8 @@ class VpcRouterHttpServer(object):
         Start the HTTP server thread.
 
         """
-        self.conf = conf
+        self.conf                = conf
+        self.wsgi_server_started = False
         self.start()
 
     def start(self):
@@ -167,7 +183,8 @@ class VpcRouterHttpServer(object):
                      (self.conf['addr'], self.conf['port']))
 
         self.my_server = MyWSGIRefServer(host=self.conf['addr'],
-                                         port=self.conf['port'])
+                                         port=self.conf['port'],
+                                         romana_http=self)
 
         self.http_thread = threading.Thread(
                     target = APP.run,
@@ -176,6 +193,10 @@ class VpcRouterHttpServer(object):
 
         self.http_thread.daemon = True
         self.http_thread.start()
+        time.sleep(1)
+        if not self.wsgi_server_started:
+            # Set the global flag indicating that everything should stop
+            CURRENT_STATE._stop_all = True
 
     def stop(self):
         """

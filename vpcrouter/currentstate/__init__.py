@@ -46,6 +46,7 @@ class _CurrentState(object):
         self.conf             = None
         self.main_param_names = []
         self._vpc_router_http = None
+        self._stop_all        = False
 
         # The following top-level items are rendered as links and can be
         # accessed with separate requests.

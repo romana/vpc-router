@@ -340,6 +340,7 @@ class TestWatcherConfigfile(TestBase):
             ('root', 'DEBUG',
              'New route spec detected. Updating health-monitor '
              'with: 1.1.1.1,2.2.2.2,3.3.3.3'),
+            ('root', 'DEBUG', 'event_monitor_loop ended: Global stop'),
             ('root', 'DEBUG', u'Checking live IPs: 1.1.1.1,2.2.2.2,3.3.3.3'),
             ('root', 'INFO', u'Currently failed IPs: 3.3.3.3'))
         self.lc.clear()
@@ -372,6 +373,7 @@ class TestWatcherConfigfile(TestBase):
             ('root', 'DEBUG',
              'New route spec detected. Updating health-monitor '
              'with: 2.2.2.2,3.3.3.3,4.4.4.4'),
+            ('root', 'DEBUG', 'event_monitor_loop ended: Global stop'),
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
 
         self.lc.clear()
@@ -385,6 +387,7 @@ class TestWatcherConfigfile(TestBase):
         self.lc.check(
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'),
             ('root', 'DEBUG', 'Time for regular route check'),
+            ('root', 'DEBUG', 'event_monitor_loop ended: Global stop'),
             ('root', 'DEBUG', u'Checking live IPs: 2.2.2.2,4.4.4.4'))
 
         watcher.stop_plugins(watcher_plugin, health_plugin)
@@ -439,6 +442,8 @@ class TestWatcherHttp(TestWatcherConfigfile):
             ('root', 'INFO',
              "HTTP server: Starting to listen for requests on "
              "'localhost:%d'..." % self.conf['port']),
+            ('root', 'INFO',
+             'HTTP server: Started to listen...'),
             ('root', 'INFO',
              "Http watcher plugin: Starting to watch for route spec on "
              "'localhost:%d/route_spec'..." % self.conf['port'])
