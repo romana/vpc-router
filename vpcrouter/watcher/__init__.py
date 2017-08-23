@@ -91,7 +91,7 @@ def _event_monitor_loop(region_name, vpc_id,
     # re-created on its own.
     last_route_check_time    = time.time()
     time_for_regular_recheck = False
-    while True:
+    while not CURRENT_STATE._stop_all:
         try:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
@@ -145,7 +145,12 @@ def _event_monitor_loop(region_name, vpc_id,
         except Exception as e:
             # Of course we should never get here, but if we do, better to log
             # it and keep operating best we can...
+            import traceback
+            traceback.print_exc()
             logging.error("*** Uncaught exception 1: %s" % str(e))
+            return
+
+    logging.debug("event_monitor_loop ended: Global stop")
 
 
 def start_plugins(conf, watcher_plugin_class, health_plugin_class,
@@ -207,6 +212,10 @@ def start_watcher(conf, watcher_plugin_class, health_plugin_class,
     The loop itself is in its own function to facilitate easier testing.
 
     """
+    if CURRENT_STATE._stop_all:
+        logging.debug("Not starting plugins: Global stop")
+        return
+
     # Start the working threads (health monitor, config event monitor, etc.)
     # and return the thread handles and message queues in a thread-info dict.
     watcher_plugin, health_plugin = \

@@ -186,7 +186,7 @@ class MonitorPlugin(object):
 
         try:
             interval_count = 0
-            while True:
+            while not CURRENT_STATE._stop_all:
                 start_time = time.time()
                 # See if we should update our working set
                 new_ips = self.get_new_working_set()
@@ -233,6 +233,8 @@ class MonitorPlugin(object):
                 time.sleep(self.get_monitor_interval() -
                            (end_time - start_time))
                 interval_count += 1
+
+            logging.debug("Monitoring loop ended: Global stop")
 
         except StopReceived:
             # Received the stop signal, just exiting the thread function

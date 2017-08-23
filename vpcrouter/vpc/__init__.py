@@ -464,6 +464,10 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     If a route points at a failed IP then a new candidate is chosen.
 
     """
+    if CURRENT_STATE._stop_all:
+        logging.debug("Routespec processing. Stop requested, abort operation")
+        return
+
     if failed_ips:
         logging.debug("Route spec processing. Failed IPs: %s" %
                       ",".join(failed_ips))
@@ -497,6 +501,10 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
     Connect to region and update routes according to route spec.
 
     """
+    if CURRENT_STATE._stop_all:
+        logging.debug("handle_spec: Stop requested, abort operation")
+        return
+
     if not route_spec:
         logging.debug("handle_spec: No route spec provided")
         return
