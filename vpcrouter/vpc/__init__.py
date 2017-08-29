@@ -221,7 +221,7 @@ def _update_route(dcidr, router_ip, old_router_ip,
                     interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
-    except VpcRouteSetError as e:
+    except Exception as e:
         msg = "*** failed to update route in RT '%s' %s -> %s (%s)" % \
               (route_table_id, dcidr, old_router_ip, e.message)
         update_reason += " [ERROR update route: %s]" % e.message
@@ -250,7 +250,7 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
                                     (router_ip, str(instance.id), str(eni.id))
         msg = "Added route"
 
-    except VpcRouteSetError as e:
+    except Exception as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
                       (route_table_id, dcidr, router_ip, e.message))
@@ -305,34 +305,47 @@ def _update_existing_routes(route_spec, failed_ips,
         # Iterate over all the routes we find in each RT
         for r in rt.routes:
             dcidr = r.destination_cidr_block
-            if r.instance_id is None:
+            if r.instance_id is None and r.interface_id is None:
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
-                # aren't attached to a particular instance. We skip those.
+                # aren't attached to a particular instance or interface.
+                # We skip those.
                 _rt_state_update(rt.id, dcidr,
-                                 msg="Ignored: Note a route to an instance")
+                                 msg="Ignored: Not a route to an instance")
                 continue
+
             routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
 
             hosts = route_spec.get(dcidr)       # eligible routers for CIDR
 
-            # Current router host for this CIDR/route.
-            instance    = vpc_info['instance_by_id'][r.instance_id]
-            ipaddr, eni = get_instance_private_ip_from_route(instance, r)
+            # Current router host for this CIDR/route. The instance_id in the
+            # route may be None. We can get this in case of a black-hole route.
+            if r.instance_id:
+                instance    = vpc_info['instance_by_id'][r.instance_id]
+                ipaddr, eni = get_instance_private_ip_from_route(instance, r)
 
-            # If route points to outdated instance, set ipaddr and eni to None
-            # to signal that route needs to be updated
-            real_instance = _get_real_instance_if_mismatch(vpc_info, ipaddr,
-                                                           instance, eni)
-            if real_instance:
+                # If route points to outdated instance, set ipaddr and eni to
+                # None to signal that route needs to be updated
+                real_instance = _get_real_instance_if_mismatch(
+                                            vpc_info, ipaddr, instance, eni)
+                if real_instance:
+                    logging.info("--- obsoleted route in RT '%s' "
+                                 "%s -> %s (%s, %s) (new instance with same "
+                                 "IP address should be used: %s)" %
+                                 (rt.id, dcidr, ipaddr, instance.id, eni.id,
+                                  real_instance.id))
+                    # Setting the ipaddr and eni to None signals code further
+                    # down that the route must be updated.
+                    ipaddr = eni = None
+
+            else:
+                # This route didn't point to an instance anymore, probably
+                # a black hole route
+                instance      = None
+                ipaddr, eni   = None, None
                 logging.info("--- obsoleted route in RT '%s' "
-                             "%s -> %s (%s, %s) (new instance with same "
-                             "IP address should be used: %s)" %
-                             (rt.id, dcidr, ipaddr, instance.id, eni.id,
-                              real_instance.id))
-                # Setting the ipaddr and eni to None signals code further down
-                # that the route must be updated.
-                ipaddr = eni = None
+                             "%s -> ... (doesn't point to instance anymore)" %
+                             (rt.id, dcidr))
 
             if not hosts:
                 # The route isn't in the spec anymore and should be deleted.
