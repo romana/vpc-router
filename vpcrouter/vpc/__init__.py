@@ -221,7 +221,7 @@ def _update_route(dcidr, router_ip, old_router_ip,
                     interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
-    except VpcRouteSetError as e:
+    except Exception as e:
         msg = "*** failed to update route in RT '%s' %s -> %s (%s)" % \
               (route_table_id, dcidr, old_router_ip, e.message)
         update_reason += " [ERROR update route: %s]" % e.message
@@ -250,7 +250,7 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
                                     (router_ip, str(instance.id), str(eni.id))
         msg = "Added route"
 
-    except VpcRouteSetError as e:
+    except Exception as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
                       (route_table_id, dcidr, router_ip, e.message))
@@ -272,7 +272,7 @@ def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
     # Careful! A route may be a black-hole route, which still has instance and
     # eni information for an instance that doesn't exist anymore. If a host was
     # terminated and a new host got the same IP then this route won't be
-    # updated and will keep pointing to a non-existing node.  So we find the
+    # updated and will keep pointing to a non-existing node. So we find the
     # instance by IP and check that the route really points to this instance.
     if ipaddr:
         real_instance, real_eni = \
@@ -464,6 +464,9 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     If a route points at a failed IP then a new candidate is chosen.
 
     """
+    CURRENT_STATE.vpc_state.setdefault("time",
+                                       datetime.datetime.now().isoformat())
+
     if CURRENT_STATE._stop_all:
         logging.debug("Routespec processing. Stop requested, abort operation")
         return
@@ -480,9 +483,6 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # Need to remember the routes we saw in different RTs, so that we can later
     # add them, if needed.
     routes_in_rts  = {}
-
-    CURRENT_STATE.vpc_state.setdefault("time",
-                                       datetime.datetime.now().isoformat())
 
     # Passed through the functions and filled in, state accumulates information
     # about all the routes we encounted in the VPC and what we are doing with
