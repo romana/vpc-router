@@ -272,7 +272,7 @@ def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
     # Careful! A route may be a black-hole route, which still has instance and
     # eni information for an instance that doesn't exist anymore. If a host was
     # terminated and a new host got the same IP then this route won't be
-    # updated and will keep pointing to a non-existing node. So we find the
+    # updated and will keep pointing to a non-existing node.  So we find the
     # instance by IP and check that the route really points to this instance.
     if ipaddr:
         real_instance, real_eni = \
@@ -305,34 +305,47 @@ def _update_existing_routes(route_spec, failed_ips,
         # Iterate over all the routes we find in each RT
         for r in rt.routes:
             dcidr = r.destination_cidr_block
-            if r.instance_id is None:
+            if r.instance_id is None and r.interface_id is None:
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
-                # aren't attached to a particular instance. We skip those.
+                # aren't attached to a particular instance or interface.
+                # We skip those.
                 _rt_state_update(rt.id, dcidr,
-                                 msg="Ignored: Note a route to an instance")
+                                 msg="Ignored: Not a route to an instance")
                 continue
+
             routes_in_rts[rt.id].append(dcidr)  # remember we've seen the route
 
             hosts = route_spec.get(dcidr)       # eligible routers for CIDR
 
-            # Current router host for this CIDR/route.
-            instance    = vpc_info['instance_by_id'][r.instance_id]
-            ipaddr, eni = get_instance_private_ip_from_route(instance, r)
+            # Current router host for this CIDR/route. The instance_id in the
+            # route may be None. We can get this in case of a black-hole route.
+            if r.instance_id:
+                instance    = vpc_info['instance_by_id'][r.instance_id]
+                ipaddr, eni = get_instance_private_ip_from_route(instance, r)
 
-            # If route points to outdated instance, set ipaddr and eni to None
-            # to signal that route needs to be updated
-            real_instance = _get_real_instance_if_mismatch(vpc_info, ipaddr,
-                                                           instance, eni)
-            if real_instance:
+                # If route points to outdated instance, set ipaddr and eni to
+                # None to signal that route needs to be updated
+                real_instance = _get_real_instance_if_mismatch(
+                                            vpc_info, ipaddr, instance, eni)
+                if real_instance:
+                    logging.info("--- obsoleted route in RT '%s' "
+                                 "%s -> %s (%s, %s) (new instance with same "
+                                 "IP address should be used: %s)" %
+                                 (rt.id, dcidr, ipaddr, instance.id, eni.id,
+                                  real_instance.id))
+                    # Setting the ipaddr and eni to None signals code further
+                    # down that the route must be updated.
+                    ipaddr = eni = None
+
+            else:
+                # This route didn't point to an instance anymore, probably
+                # a black hole route
+                instance      = None
+                ipaddr, eni   = None, None
                 logging.info("--- obsoleted route in RT '%s' "
-                             "%s -> %s (%s, %s) (new instance with same "
-                             "IP address should be used: %s)" %
-                             (rt.id, dcidr, ipaddr, instance.id, eni.id,
-                              real_instance.id))
-                # Setting the ipaddr and eni to None signals code further down
-                # that the route must be updated.
-                ipaddr = eni = None
+                             "%s -> ... (doesn't point to instance anymore)" %
+                             (rt.id, dcidr))
 
             if not hosts:
                 # The route isn't in the spec anymore and should be deleted.
@@ -464,9 +477,6 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     If a route points at a failed IP then a new candidate is chosen.
 
     """
-    CURRENT_STATE.vpc_state.setdefault("time",
-                                       datetime.datetime.now().isoformat())
-
     if CURRENT_STATE._stop_all:
         logging.debug("Routespec processing. Stop requested, abort operation")
         return
@@ -483,6 +493,9 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # Need to remember the routes we saw in different RTs, so that we can later
     # add them, if needed.
     routes_in_rts  = {}
+
+    CURRENT_STATE.vpc_state.setdefault("time",
+                                       datetime.datetime.now().isoformat())
 
     # Passed through the functions and filled in, state accumulates information
     # about all the routes we encounted in the VPC and what we are doing with
