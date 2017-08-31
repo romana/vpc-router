@@ -79,8 +79,9 @@ def _event_monitor_loop(region_name, vpc_id,
     fixed back up again on their own.
 
     """
-    q_route_spec                = watcher_plugin.get_route_spec_queue()
-    q_monitor_ips, q_failed_ips = health_plugin.get_queues()
+    q_route_spec = watcher_plugin.get_route_spec_queue()
+    q_monitor_ips, q_failed_ips, q_questionable_ips = \
+                                                health_plugin.get_queues()
     time.sleep(sleep_time)   # Wait to allow monitor to report results
 
     current_route_spec = {}  # The last route spec we have seen
@@ -90,18 +91,22 @@ def _event_monitor_loop(region_name, vpc_id,
     # That way, if a route is manually deleted by someone, it will be
     # re-created on its own.
     last_route_check_time    = time.time()
-    time_for_regular_recheck = False
     while not CURRENT_STATE._stop_all:
         try:
             # Get the latest messages from the route-spec monitor and the
             # health-check monitor. At system start the route-spec queue should
             # immediately have been initialized with a first message.
             failed_ips     = utils.read_last_msg_from_queue(q_failed_ips)
+            questnbl_ips   = utils.read_last_msg_from_queue(q_questionable_ips)
             new_route_spec = utils.read_last_msg_from_queue(q_route_spec)
 
             if failed_ips:
                 # Store the failed IPs in the shared state
                 CURRENT_STATE.failed_ips = failed_ips
+
+            if questnbl_ips:
+                # Store the questionable IPs in the shared state
+                CURRENT_STATE.questionble_ips = questnbl_ips
 
             if new_route_spec:
                 # Store the new route spec in the shared state
@@ -116,21 +121,26 @@ def _event_monitor_loop(region_name, vpc_id,
                                                               all_ips,
                                                               q_monitor_ips)
 
-            # Spec or list of failed IPs changed? Update routes...
+            # Spec or list of failed or questionable IPs changed? Update
+            # routes...
             # We pass in the last route spec we have seen, since we are also
-            # here in case we only have failed IPs, but no new route spec.
-            # This is also called occasionally on its own, so that we can
-            # repair any damaged route tables in VPC.
+            # here in case we only have failed/questionable IPs, but no new
+            # route spec. This is also called occasionally on its own, so that
+            # we can repair any damaged route tables in VPC.
             now = time.time()
-            if route_check_time_interval:
-                time_for_regular_recheck = \
+            time_for_regular_recheck = \
                     (now - last_route_check_time) > route_check_time_interval
-            if new_route_spec or failed_ips or time_for_regular_recheck:
-                if not new_route_spec and not failed_ips:
+
+            if new_route_spec or failed_ips or questnbl_ips or \
+                                                time_for_regular_recheck:
+                if not new_route_spec and not (failed_ips or questnbl_ips):
+                    # Only reason we are here is due to expired timer.
                     logging.debug("Time for regular route check")
+
                 last_route_check_time = now
                 vpc.handle_spec(region_name, vpc_id, current_route_spec,
-                                failed_ips if failed_ips else [])
+                                failed_ips if failed_ips else [],
+                                questnbl_ips if questnbl_ips else [])
 
             # If iterations are provided, count down and exit
             if iterations is not None:

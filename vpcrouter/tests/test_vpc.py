@@ -41,23 +41,38 @@ class TestVpcUtil(unittest.TestCase):
 
     def test_host_choices(self):
         #
-        # Specific test for the _choose_from_host function, verifying that it
-        # can find available hosts, or indicate error as needed.
+        # Specific test for the _choose_different_host function, verifying that
+        # it can find available hosts, or indicate error as needed. Since we
+        # fixed the seed, we have predictable 'random' choises for our test.
         #
         in_out = [
-            [([], []),                 None, 0],
-            [(["A"], []),              "A",  0],
-            [(["A", "B"], ["A"]),      "B",  0],
-            [(["A", "B"], ["C"]),      "A",  0],  # known random choice
-            [(["A", "B"], ["A", "B"]), None, 0],
-            [(["A", "B"], ["B"]),      "A",  None],
-            [(["A", "B"], ["A"]),      "B",  None],
-            [(["A", "B"], ["A", "B"]), None, None],
+            # old_ip  ip_list          failed_ip   quest_ip
+            [(None,   [],              [],         []),               None],
+            [(None,   ["A"],           [],         []),               "A"],
+            [("A",    ["A", "B"],      ["A"],      []),               "B"],
+            [("A",    ["A", "B"],      ["C"],      []),               "A"],
+            [(None,   ["A", "B"],      ["A", "B"], []),               None],
+            [(None,   ["A", "B"],      ["B"],      []),               "A"],
+            [(None,   ["A", "B"],      ["A"],      []),               "B"],
+            [(None,   ["A", "B"],      ["A", "B"], []),               None],
+            [(None,   ["A", "B"],      ["A"],      ["B"]),            "B"],
+            [(None,   ["A", "B"],      ["A", "B"], ["B"]),            None],
+            [(None,   ["A", "B", "C"], ["A"],      ["B"]),            "C"],
+            [(None,   ["A", "B", "C"], [],         ["A", "B", "C"]),  "A"],
+            # None is returned, since we won't choose a different host
+            [("A",    ["A", "B", "C"], [],         ["A", "B", "C"]),  None],
+            [("B",    ["A", "B", "C"], [],         ["A", "B", "C"]),  None],
+            [("C",    ["A", "B", "C"], [],         ["A", "B", "C"]),  None],
+            [("C",    ["B", "C"],      [],         ["A", "B", "C"]),  None],
+            # New host forced, since "C" isn't in ip list
+            [("C",    ["A", "B"],      [],         ["A", "B", "C"]),  "B"],
+            # No available choice, so nothing to change to
+            [("C",    [],              [],         ["A", "B", "C"]),  None],
         ]
-        for args, expected_out, first_pos in in_out:
+        for args, expected_out in in_out:
             self.assertEqual(
                 expected_out,
-                vpc._choose_from_hosts(*args))
+                vpc._choose_different_host(*args))
 
 
 class TestVpcBotoInteractions(unittest.TestCase):
@@ -152,7 +167,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # Process a simple route spec, a route should have been added
         self.lc.clear()
-        vpc.process_route_spec_config(con, d, route_spec, [])
+        vpc.process_route_spec_config(con, d, route_spec, [], [])
         # One of the hosts is randomly chosen. We seeded the random number
         # generator at in this module, so we know that it will choose the
         # second host in this case.
@@ -161,26 +176,52 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.1.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
+
+        # One of the two IPs questionable, switch over
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [], [self.i1ip])
+        self.lc.check(
+            ('root', 'DEBUG',
+             'Route spec processing. No failed IPs.'),
+            ('root', 'INFO',
+             "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
+             "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
+             "or not eligible anymore)" %
              (rt_id, self.i2ip, i2.id, eni2.id)))
+
+        # Now switch back
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [], [self.i2ip])
+        self.lc.check(
+            ('root', 'DEBUG',
+             'Route spec processing. No failed IPs.'),
+            ('root', 'INFO',
+             "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
+             "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
+             "or not eligible anymore)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
 
         # One of the two IPs failed, switch over
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.process_route_spec_config(con, d, route_spec, [self.i1ip])
+        vpc.process_route_spec_config(con, d, route_spec, [self.i1ip], [])
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s' % self.i1ip),
             ('root', 'INFO',
              "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
-             "%s (%s, %s) (old IP: None, reason: old IP failed or not "
-             "eligible anymore)" %
+             "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
+             "or not eligible anymore)" %
              (rt_id, self.i2ip, i2.id, eni2.id)))
 
         # Now all IPs for a route have failed
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec,
-                                      [self.i1ip, self.i2ip])
+                                      [self.i1ip, self.i2ip], [])
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s,%s' %
@@ -196,7 +237,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         self.lc.clear()
-        vpc.process_route_spec_config(con, d, route_spec, [])
+        vpc.process_route_spec_config(con, d, route_spec, [], [])
         self.lc.check(
             ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
             ('root', 'INFO',
@@ -226,7 +267,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Test handle_spec
         vid = self.new_vpc.id
         self.lc.clear()
-        vpc.handle_spec("ap-southeast-2", vid, route_spec, [])
+        vpc.handle_spec("ap-southeast-2", vid, route_spec, [], [])
         self.lc.check(
             ('root', 'DEBUG', 'Handle route spec'),
             ('root', 'DEBUG', "Connecting to AWS region 'ap-southeast-2'"),
@@ -252,7 +293,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         vpc.get_instance_private_ip_from_route = \
                                 my_get_instance_private_ip_from_route
         self.lc.clear()
-        vpc.handle_spec("ap-southeast-2", vid, route_spec, [])
+        vpc.handle_spec("ap-southeast-2", vid, route_spec, [], [])
 
         vpc.get_instance_private_ip_from_route = old_func
 
