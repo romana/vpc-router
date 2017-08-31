@@ -1,1 +1,5 @@
 include README.md
+include DEPLOY.md
+include DEVELOPERS.md
+include PLUGINS.md
+include LICENSE
