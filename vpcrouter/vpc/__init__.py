@@ -296,6 +296,50 @@ def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
     return None
 
 
+def _get_host_for_route(vpc_info, route, route_table, dcidr):
+    """
+    Given a specific route, return information about the instance to which it
+    points.
+
+    Need to take care of scenarios where the instance isn't set anymore in the
+    route (the instance may have disappeared).
+
+    """
+    # The instance_id in the route may be None. We can get this in case of a
+    # black-hole route.
+    if route.instance_id:
+        instance    = vpc_info['instance_by_id'][route.instance_id]
+        inst_id     = instance.id if instance else "(unknown)"
+        ipaddr, eni = get_instance_private_ip_from_route(instance, route)
+        eni_id      = eni.id if eni else "(unknown)"
+
+        # If route points to outdated instance, set ipaddr and eni to
+        # None to signal that route needs to be updated
+        real_instance = _get_real_instance_if_mismatch(
+                                    vpc_info, ipaddr, instance, eni)
+        if real_instance:
+            logging.info("--- obsoleted route in RT '%s' "
+                         "%s -> %s (%s, %s) (new instance with same "
+                         "IP address should be used: %s)" %
+                         (route_table.id, dcidr, ipaddr, instance.id, eni.id,
+                          real_instance.id))
+            # Setting the ipaddr and eni to None signals code further
+            # down that the route must be updated.
+            inst_id = eni_id = "(unknown)"
+            ipaddr  = None
+
+    else:
+        # This route didn't point to an instance anymore, probably
+        # a black hole route
+        inst_id = eni_id = "(unknown)"
+        ipaddr  = None
+        logging.info("--- obsoleted route in RT '%s' "
+                     "%s -> ... (doesn't point to instance anymore)" %
+                     (route_table.id, dcidr))
+
+    return inst_id, ipaddr, eni_id
+
+
 def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                             vpc_info, con, routes_in_rts):
     """
@@ -332,41 +376,15 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
 
             hosts = route_spec.get(dcidr)       # eligible routers for CIDR
 
-            # Current router host for this CIDR/route. The instance_id in the
-            # route may be None. We can get this in case of a black-hole route.
-            if r.instance_id:
-                instance    = vpc_info['instance_by_id'][r.instance_id]
-                ipaddr, eni = get_instance_private_ip_from_route(instance, r)
-
-                # If route points to outdated instance, set ipaddr and eni to
-                # None to signal that route needs to be updated
-                real_instance = _get_real_instance_if_mismatch(
-                                            vpc_info, ipaddr, instance, eni)
-                if real_instance:
-                    logging.info("--- obsoleted route in RT '%s' "
-                                 "%s -> %s (%s, %s) (new instance with same "
-                                 "IP address should be used: %s)" %
-                                 (rt.id, dcidr, ipaddr, instance.id, eni.id,
-                                  real_instance.id))
-                    # Setting the ipaddr and eni to None signals code further
-                    # down that the route must be updated.
-                    ipaddr = eni = None
-
-            else:
-                # This route didn't point to an instance anymore, probably
-                # a black hole route
-                instance      = None
-                ipaddr, eni   = None, None
-                logging.info("--- obsoleted route in RT '%s' "
-                             "%s -> ... (doesn't point to instance anymore)" %
-                             (rt.id, dcidr))
+            # Current router host for this CIDR/route.
+            inst_id, ipaddr, eni_id = \
+                                _get_host_for_route(vpc_info, r, rt, dcidr)
 
             if not hosts:
                 # The route isn't in the spec anymore and should be deleted.
                 logging.info("--- route not in spec, deleting in RT '%s': "
                              "%s -> ... (%s, %s)" %
-                             (rt.id, dcidr, instance.id,
-                              eni.id if eni else "(unknown)"))
+                             (rt.id, dcidr, inst_id, eni_id))
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
                 if dcidr in CURRENT_STATE.routes:
@@ -406,8 +424,8 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                 logging.info("--- route exists already in RT '%s': "
                              "%s -> %s (%s, %s)" %
                              (rt.id, dcidr,
-                              ipaddr, instance.id, eni.id))
-                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                              ipaddr, inst_id, eni_id))
+                _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="Current: Route exist and up to date")
                 continue
 
@@ -415,7 +433,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                 # We've tried to set a route for this before, but
                 # couldn't find any health hosts. Can't do anything and
                 # need to skip.
-                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="None healthy, black hole: "
                                      "Determined earlier")
                 continue
