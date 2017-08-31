@@ -105,7 +105,8 @@ class TestQueues(unittest.TestCase):
         # communication queues.
         p.start()
         self.plugin = p
-        self.q_monitor_ips, self.q_failed_ips = self.plugin.get_queues()
+        self.q_monitor_ips, self.q_failed_ips, self.q_questionable_ips = \
+                                                    self.plugin.get_queues()
 
         # Install the cleanup, which will send the stop signal to the monitor
         # thread once we are done with our test
@@ -266,7 +267,8 @@ class TestQueuesTcp(TestQueues):
 
         p.start()
         self.plugin = p
-        self.q_monitor_ips, self.q_failed_ips = self.plugin.get_queues()
+        self.q_monitor_ips, self.q_failed_ips, self.q_questionable_ips = \
+                                                    self.plugin.get_queues()
 
         self.addCleanup(self.cleanup)
 
@@ -323,10 +325,15 @@ class TestMulti(unittest.TestCase):
             def start(self):
                 pass
 
-            def send(self, items):
+            def send_failed(self, items):
                 # This allows us to force the plugin to 'report' specified
                 # failed IP addresses.
                 self.q_failed_ips.put(items)
+
+            def send_questionable(self, items):
+                # This allows us to force the plugin to 'report' specified
+                # questionable IP addresses.
+                self.q_questionable_ips.put(items)
 
         conf = {}
         t1 = Testplugin(conf, "t1")
@@ -338,7 +345,7 @@ class TestMulti(unittest.TestCase):
         self.mp = mp
         mp.start()
 
-        qm, qf = mp.get_queues()
+        qm, qf, qq = mp.get_queues()
 
         # Test that new monitor IPs are passed on.
         time.sleep(1)
@@ -351,28 +358,42 @@ class TestMulti(unittest.TestCase):
         # Sending various failed IPs through the two plugins. We should get
         # accumulated results...
         self.assertTrue(utils.read_last_msg_from_queue(qf) is None)
-        t1.send(["10.1.1.1", "10.1.1.2"])
+        t1.send_failed(["10.1.1.1", "10.1.1.2"])
         time.sleep(0.5)
         self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
                          ["10.1.1.1", "10.1.1.2"])
-        t2.send(["10.1.1.3"])
+        t2.send_failed(["10.1.1.3"])
         time.sleep(0.5)
         self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
                          ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
-        t1.send(["10.1.1.1"])
+        t1.send_failed(["10.1.1.1"])
         time.sleep(0.5)
         self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
                          ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
         time.sleep(1)
-        t1.send(["10.1.1.1"])
+        t1.send_failed(["10.1.1.1"])
         time.sleep(2)
         self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
                          ["10.1.1.1", "10.1.1.2", "10.1.1.3"])
-        t1.send(["10.1.1.2"])
+        t1.send_failed(["10.1.1.2"])
         time.sleep(1)
         # ... but without refresh, some results should eventually disappear
         self.assertEqual(sorted(utils.read_last_msg_from_queue(qf)),
                          ["10.1.1.1", "10.1.1.2"])
+
+        # Now test questionable IPs
+        t1.send_questionable(["10.1.2.3", "10.2.3.4"])
+        time.sleep(0.5)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qq)),
+                         ["10.1.2.3", "10.2.3.4"])
+        self.assertFalse(utils.read_last_msg_from_queue(qf))
+
+        t1.send_questionable(["10.9.9.9"])
+        t2.send_questionable(["10.2.2.2", "10.3.3.3"])
+        time.sleep(0.5)
+        self.assertEqual(sorted(utils.read_last_msg_from_queue(qq)),
+                         ["10.1.2.3", "10.2.2.2", "10.2.3.4",
+                          "10.3.3.3", "10.9.9.9"])
 
 
 if __name__ == '__main__':

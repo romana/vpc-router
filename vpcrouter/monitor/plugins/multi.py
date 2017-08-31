@@ -103,10 +103,11 @@ class Multi(common.MonitorPlugin):
 
         super(Multi, self).__init__(conf, "MultiHealth")
 
-        self.my_wait_interval  = 0
-        self.plugins           = []
-        self.monitor_ip_queues = {}
-        self.failed_ip_queues  = {}
+        self.my_wait_interval       = 0
+        self.plugins                = []
+        self.monitor_ip_queues      = {}
+        self.failed_ip_queues       = {}
+        self.questionable_ip_queues = {}
 
         # For testing purposes, it is convenient to supply already pre-created
         # test plugins. We do this by calling the Multi plugin with an extra
@@ -132,6 +133,8 @@ class Multi(common.MonitorPlugin):
             plugins_and_names = test_plugins
 
         # Load and start each sub-plugin
+        self.failed_queue_lookup       = {}
+        self.questionable_queue_lookup = {}
         for pname, pc in plugins_and_names:
             if test_plugins:
                 # In test configuration we get already initialized instances
@@ -150,9 +153,11 @@ class Multi(common.MonitorPlugin):
             # belongs to what plugin is so that we can produce nicer logging
             # messages. For the logic of the multi-plugin it doesn't really
             # matter which plugin reports what failed IP.
-            q_monitor_ips, q_failed_ips   = plugin.get_queues()
-            self.monitor_ip_queues[pname] = q_monitor_ips
-            self.failed_ip_queues[pname]  = q_failed_ips
+            q_monitor_ips, q_failed_ips, q_questionable_ips = \
+                                                        plugin.get_queues()
+            self.monitor_ip_queues[pname]         = q_monitor_ips
+            self.failed_queue_lookup[pname]       = q_failed_ips
+            self.questionable_queue_lookup[pname] = q_questionable_ips
 
             # Also calculate our waiting interval: Double the max of each
             # plugin's interval. That's sufficient to make sure we get updates
@@ -161,11 +166,12 @@ class Multi(common.MonitorPlugin):
                                         plugin.get_monitor_interval())
         self.my_wait_interval *= 2
 
-        # We will keep the reported failed IP addresses in an accumulating
-        # buffer. This is important, since otherwise, an updated from one
-        # plugin may wipe out the updated provided just before from another
-        # plugin.
-        self.expiring_data_set = ExpireSet(self.my_wait_interval * 10)
+        # We will keep the reportedly failed and questionable IP addresses in
+        # accumulating buffers. This is important, since otherwise, an update
+        # from one plugin may wipe out the update provided just before from
+        # another plugin.
+        self.report_failed_acc       = ExpireSet(self.my_wait_interval * 10)
+        self.report_questionable_acc = ExpireSet(self.my_wait_interval * 10)
 
     def get_monitor_interval(self):
         """
@@ -196,6 +202,66 @@ class Multi(common.MonitorPlugin):
             }
         }
 
+    def _accumulate_ips_from_plugins(self, ip_type_name, plugin_queue_lookup,
+                                     ip_accumulator):
+        """
+        Retrieve all IPs of a given type from all sub-plugins.
+
+        ip_type_name:        A name of the type of IP we are working with.
+                             Used for nice log messages. Example 'failed',
+                             'questionable'.
+        plugin_queue_lookup: Dictionary to lookup the queues (of a given type)
+                             for a plugins, by plugin name.
+        ip_accumulator:      An expiring data set for this type of IP address.
+
+        Returns either a set of addresses to send out on our own reporting
+        queues, or None.
+
+        """
+        all_reported_ips  = set()
+        for pname, q in plugin_queue_lookup.items():
+            # Get all the IPs of the specified type from all the plugins.
+            ips = utils.read_last_msg_from_queue(q)
+            if ips:
+                logging.debug("Sub-plugin '%s' reported %d "
+                              "%s IPs: %s" %
+                              (pname, len(ips), ip_type_name,
+                               ",".join(ips)))
+                all_reported_ips.update(ips)  # merge all the lists
+            else:
+                logging.debug("Sub-plugin '%s' reported no "
+                              "%s IPs." % (pname, ip_type_name))
+
+        # Send out the combined list of reported IPs. The receiver of this
+        # message expects this list to always be the full list of IPs. So, IF
+        # they get a message, it needs to be complete, since otherwise any IP
+        # not mentioned in this update is considered healthy.
+        #
+        # Since different sub-plugins may report different IPs at different
+        # times (and not always at the same time), we need to accumulate those
+        # IPs that are recorded by different sub-plugins over time.
+        #
+        # We use an 'expiring data set' to store those: If any plugin refreshes
+        # an IP as failed then the entry remains, otherwise, it will expire
+        # after some time. The expiring data set therefore, is an accumulation
+        # of recently reported IPs. We always report this set, whenever we send
+        # out an update of IPs.
+        #
+        # Each type of IP (for example, 'failed' or 'questionable') has its own
+        # accumulator, which was passed in to this function.
+        if all_reported_ips:
+            ip_accumulator.update(all_reported_ips)
+            current_ips = ip_accumulator.get()
+            logging.info("Multi-plugin health monitor: "
+                         "Reporting combined list of %s "
+                         "IPs: %s" %
+                         (ip_type_name,
+                          ",".join(current_ips)))
+            return current_ips
+        else:
+            logging.debug("No failed IPs to report.")
+            return None
+
     def start_monitoring(self):
         """
         Pass IP lists to monitor sub-plugins and get results from them.
@@ -221,45 +287,21 @@ class Multi(common.MonitorPlugin):
                     for q in self.monitor_ip_queues.values():
                         q.put(new_ips)
 
-                # Get any notifications about failed IPs from the plugins.
-                failed_ips = set()
-                for pname, q in self.failed_ip_queues.items():
-                    fips = utils.read_last_msg_from_queue(q)
-                    if fips:
-                        logging.debug("Sub-plugin '%s' reported %d "
-                                      "failed IPs: %s" %
-                                      (pname, len(fips), ",".join(fips)))
-                        failed_ips.update(fips)
-                    else:
-                        logging.debug("Sub-plugin '%s' reported no "
-                                      "failed IPs." % pname)
+                # Get any notifications about failed or questionable IPs from
+                # the plugins.
+                all_failed_ips = self._accumulate_ips_from_plugins(
+                                            "failed",
+                                            self.failed_queue_lookup,
+                                            self.report_failed_acc)
+                if all_failed_ips:
+                    self.q_failed_ips.put(all_failed_ips)
 
-                # Send out the combined list of failed IPs. The receiver of
-                # this message expects this list to always be the full list of
-                # IPs. So, IF they get a message, it needs to be complete,
-                # since otherwise any IP not mentioned in this update is
-                # considered healthy.
-                #
-                # Since different sub-plugins may report different IPs at
-                # different times (and not always at the same time), we need to
-                # accumulate those IPs that are recorded by different
-                # sub-plugins over time.
-                #
-                # We use an 'expiring data set' to store those: If any plugin
-                # refreshes an IP as failed then the entry remains, otherwise,
-                # it will expire after some time. The expiring data set
-                # therefore, is an accumulation of recently reported failed
-                # IPs. We always report this set, whenever we send out an
-                # update of failed IPs.
-                if failed_ips:
-                    self.expiring_data_set.update(failed_ips)
-                    current_failed_ips = self.expiring_data_set.get()
-                    logging.info("Multi-plugin health monitor: "
-                                 "Reporting combined list of failed "
-                                 "IPs: %s" % ",".join(current_failed_ips))
-                    self.q_failed_ips.put(current_failed_ips)
-                else:
-                    logging.debug("No failed IPs to report.")
+                all_questionable_ips = self._accumulate_ips_from_plugins(
+                                            "questionable",
+                                            self.questionable_queue_lookup,
+                                            self.report_questionable_acc)
+                if all_questionable_ips:
+                    self.q_questionable_ips.put(all_questionable_ips)
 
                 time.sleep(self.get_monitor_interval())
 

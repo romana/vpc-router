@@ -152,38 +152,52 @@ def get_instance_private_ip_from_route(instance, route):
     return ipaddr, eni if ipaddr else None
 
 
-def _choose_from_hosts(ip_list, failed_ips):
+def _choose_different_host(old_ip, ip_list, failed_ips, questionable_ips):
     """
-    Randomly choose a host from a list of hosts.
+    Randomly choose a different host from a list of hosts.
 
-    Check against the list of failed IPs to ensure that none of those is
-    returned.
+    Pick from fully healthy IPs first (neither failed nor questionable).
+    If we don't have any of those, pick from questionable ones next.
 
     If no suitable hosts can be found in the list (if it's empty or all hosts
     are in the failed_ips list) it will return None.
 
+    The old IP (if any) is passed in. We will try to avoid returning this same
+    old IP under the right circumstances. If no old IP is known, None can be
+    passed in for it instead.
+
     """
     if not ip_list:
+        # We don't have any hosts to choose from.
         return None
 
-    # First choice is randomly selected, but it may actually be a failed
-    # host...
-    first_choice = random.randint(0, len(ip_list) - 1)
+    ip_set           = set(ip_list)
+    failed_set       = set(failed_ips)
+    # Consider only those questionable IPs that aren't also failed and make
+    # sure all of the ones in the questionable list are at least also present
+    # in the overall IP list.
+    questionable_set = set(questionable_ips).intersection(ip_set). \
+                                             difference(failed_set)
 
-    # ... so start at the chosen first position and then iterate one by one
-    # from there, until we find an IP that's not failed.
-    i = first_choice
-    while True:
-        # Found one that's alive?
-        if ip_list[i] not in failed_ips:
-            return ip_list[i]
-        # Keep going and wrap around...
-        i += 1
-        if i == len(ip_list):
-            i = 0
-        # Back at the start? Nothing could be found...
-        if i == first_choice:
-            break
+    # Get all healthy IPs that are neither failed, nor questionable
+    healthy_ips = list(ip_set.difference(failed_set, questionable_set))
+
+    if healthy_ips:
+        # Return one of the completely healthy IPs
+        return random.choice(healthy_ips)
+
+    if questionable_set:
+        # Don't have any completely healthy ones, so return one of the
+        # questionable ones. Not perfect, but at least may still provide
+        # routing functionality for some time.
+        if old_ip not in questionable_set:
+            # We may be here because the original address was questionable. If
+            # only other questionable ones are available then there's no point
+            # changing the address. We only change if the old address wasn't
+            # one of the questionable ones already.
+            return random.choice(list(questionable_set))
+
+    # We got nothing...
     return None
 
 
@@ -282,14 +296,58 @@ def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
     return None
 
 
-def _update_existing_routes(route_spec, failed_ips,
+def _get_host_for_route(vpc_info, route, route_table, dcidr):
+    """
+    Given a specific route, return information about the instance to which it
+    points.
+
+    Need to take care of scenarios where the instance isn't set anymore in the
+    route (the instance may have disappeared).
+
+    """
+    # The instance_id in the route may be None. We can get this in case of a
+    # black-hole route.
+    if route.instance_id:
+        instance    = vpc_info['instance_by_id'][route.instance_id]
+        inst_id     = instance.id if instance else "(unknown)"
+        ipaddr, eni = get_instance_private_ip_from_route(instance, route)
+        eni_id      = eni.id if eni else "(unknown)"
+
+        # If route points to outdated instance, set ipaddr and eni to
+        # None to signal that route needs to be updated
+        real_instance = _get_real_instance_if_mismatch(
+                                    vpc_info, ipaddr, instance, eni)
+        if real_instance:
+            logging.info("--- obsoleted route in RT '%s' "
+                         "%s -> %s (%s, %s) (new instance with same "
+                         "IP address should be used: %s)" %
+                         (route_table.id, dcidr, ipaddr, instance.id, eni.id,
+                          real_instance.id))
+            # Setting the ipaddr and eni to None signals code further
+            # down that the route must be updated.
+            inst_id = eni_id = "(unknown)"
+            ipaddr  = None
+
+    else:
+        # This route didn't point to an instance anymore, probably
+        # a black hole route
+        inst_id = eni_id = "(unknown)"
+        ipaddr  = None
+        logging.info("--- obsoleted route in RT '%s' "
+                     "%s -> ... (doesn't point to instance anymore)" %
+                     (route_table.id, dcidr))
+
+    return inst_id, ipaddr, eni_id
+
+
+def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                             vpc_info, con, routes_in_rts):
     """
     Go over the existing routes and check whether they still match the spec.
 
-    If the chosen router has failed, or is not in the host list anymore, the
-    route needs to be updated. If the CIDR isn't in the spec at all anymore
-    then it needs to be deleted.
+    If the chosen router has failed or is questionable or is not in the host
+    list anymore, the route needs to be updated. If the CIDR isn't in the spec
+    at all anymore then it needs to be deleted.
 
     Keeps track of the routes we have seen in each RT and populates the
     passed-in routes_in_rts dictionary with that info.
@@ -318,41 +376,15 @@ def _update_existing_routes(route_spec, failed_ips,
 
             hosts = route_spec.get(dcidr)       # eligible routers for CIDR
 
-            # Current router host for this CIDR/route. The instance_id in the
-            # route may be None. We can get this in case of a black-hole route.
-            if r.instance_id:
-                instance    = vpc_info['instance_by_id'][r.instance_id]
-                ipaddr, eni = get_instance_private_ip_from_route(instance, r)
-
-                # If route points to outdated instance, set ipaddr and eni to
-                # None to signal that route needs to be updated
-                real_instance = _get_real_instance_if_mismatch(
-                                            vpc_info, ipaddr, instance, eni)
-                if real_instance:
-                    logging.info("--- obsoleted route in RT '%s' "
-                                 "%s -> %s (%s, %s) (new instance with same "
-                                 "IP address should be used: %s)" %
-                                 (rt.id, dcidr, ipaddr, instance.id, eni.id,
-                                  real_instance.id))
-                    # Setting the ipaddr and eni to None signals code further
-                    # down that the route must be updated.
-                    ipaddr = eni = None
-
-            else:
-                # This route didn't point to an instance anymore, probably
-                # a black hole route
-                instance      = None
-                ipaddr, eni   = None, None
-                logging.info("--- obsoleted route in RT '%s' "
-                             "%s -> ... (doesn't point to instance anymore)" %
-                             (rt.id, dcidr))
+            # Current router host for this CIDR/route.
+            inst_id, ipaddr, eni_id = \
+                                _get_host_for_route(vpc_info, r, rt, dcidr)
 
             if not hosts:
                 # The route isn't in the spec anymore and should be deleted.
                 logging.info("--- route not in spec, deleting in RT '%s': "
                              "%s -> ... (%s, %s)" %
-                             (rt.id, dcidr, instance.id,
-                              eni.id if eni else "(unknown)"))
+                             (rt.id, dcidr, inst_id, eni_id))
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
                 if dcidr in CURRENT_STATE.routes:
@@ -363,7 +395,7 @@ def _update_existing_routes(route_spec, failed_ips,
             # We have a route and it's still in the spec. Do we need to update
             # the router? Multiple reasons for that:
             # - Router is not in the list of eligible hosts anymore
-            # - Router has failed
+            # - Router has failed or is questionable
             # - In a different route table we used a different host as the
             #   router.
 
@@ -372,16 +404,18 @@ def _update_existing_routes(route_spec, failed_ips,
             # find a single healthy eligible router host for it.
             stored_router_ip = chosen_routers.get(dcidr)
 
-            # Has our current router failed?
-            ipaddr_has_failed = ipaddr in failed_ips
+            # Has our current router failed or is questionable?
+            ipaddr_should_be_replaced = ipaddr in failed_ips or \
+                                        ipaddr in questionable_ips
 
             # Is the host not eligible anymore?
             ipaddr_not_eligible = ipaddr not in hosts
 
-            cant_use_ipaddr = ipaddr_has_failed or ipaddr_not_eligible
+            shouldnt_use_ipaddr = \
+                            ipaddr_should_be_replaced or ipaddr_not_eligible
 
             if (not stored_router_ip or stored_router_ip == ipaddr) and \
-                                                    not cant_use_ipaddr:
+                                                    not shouldnt_use_ipaddr:
                 # Haven't seen it before, or points to same router AND
                 # router is healthy: All good
                 if not stored_router_ip:
@@ -390,8 +424,8 @@ def _update_existing_routes(route_spec, failed_ips,
                 logging.info("--- route exists already in RT '%s': "
                              "%s -> %s (%s, %s)" %
                              (rt.id, dcidr,
-                              ipaddr, instance.id, eni.id))
-                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                              ipaddr, inst_id, eni_id))
+                _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="Current: Route exist and up to date")
                 continue
 
@@ -399,7 +433,7 @@ def _update_existing_routes(route_spec, failed_ips,
                 # We've tried to set a route for this before, but
                 # couldn't find any health hosts. Can't do anything and
                 # need to skip.
-                _rt_state_update(rt.id, dcidr, ipaddr, instance.id, eni.id,
+                _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="None healthy, black hole: "
                                      "Determined earlier")
                 continue
@@ -413,7 +447,9 @@ def _update_existing_routes(route_spec, failed_ips,
             else:
                 # Haven't seen this route in another RT, so we'll
                 # choose a new router
-                new_router_ip = _choose_from_hosts(hosts, failed_ips)
+                new_router_ip = _choose_different_host(ipaddr, hosts,
+                                                       failed_ips,
+                                                       questionable_ips)
                 if new_router_ip is None:
                     # Couldn't find healthy host to be router, forced
                     # to skip this one.
@@ -424,7 +460,8 @@ def _update_existing_routes(route_spec, failed_ips,
                     continue
 
                 chosen_routers[dcidr] = new_router_ip
-                update_reason = "old IP failed or not eligible anymore"
+                update_reason = "old IP failed/questionable or " \
+                                "not eligible anymore"
 
             _update_route(dcidr, new_router_ip, ipaddr,
                           vpc_info, con, rt.id, update_reason)
@@ -432,8 +469,8 @@ def _update_existing_routes(route_spec, failed_ips,
     return chosen_routers
 
 
-def _add_missing_routes(route_spec, failed_ips, chosen_routers,
-                        vpc_info, con, routes_in_rts):
+def _add_missing_routes(route_spec, failed_ips, questionable_ips,
+                        chosen_routers, vpc_info, con, routes_in_rts):
     """
     Iterate over route spec and add all the routes we haven't set yet.
 
@@ -453,7 +490,9 @@ def _add_missing_routes(route_spec, failed_ips, chosen_routers,
             if dcidr not in dcidr_list:
                 if not new_router_ip:
                     # We haven't chosen a target host for this CIDR.
-                    new_router_ip = _choose_from_hosts(hosts, failed_ips)
+                    new_router_ip = _choose_different_host(None, hosts,
+                                                           failed_ips,
+                                                           questionable_ips)
                     if not new_router_ip:
                         logging.warning("--- cannot find available target "
                                         "for route addition %s! "
@@ -464,7 +503,8 @@ def _add_missing_routes(route_spec, failed_ips, chosen_routers,
                 _add_new_route(dcidr, new_router_ip, vpc_info, con, rt_id)
 
 
-def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
+def process_route_spec_config(con, vpc_info, route_spec,
+                              failed_ips, questionable_ips):
     """
     Look through the route spec and update routes accordingly.
 
@@ -474,7 +514,8 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     good. Otherwise, pick one (usually the first) IP and create a route to that
     IP.
 
-    If a route points at a failed IP then a new candidate is chosen.
+    If a route points at a failed or questionable IP then a new candidate is
+    chosen, if possible.
 
     """
     if CURRENT_STATE._stop_all:
@@ -500,16 +541,18 @@ def process_route_spec_config(con, vpc_info, route_spec, failed_ips):
     # Passed through the functions and filled in, state accumulates information
     # about all the routes we encounted in the VPC and what we are doing with
     # them. This is then available in the CURRENT_STATE
-    chosen_routers = _update_existing_routes(route_spec, failed_ips,
+    chosen_routers = _update_existing_routes(route_spec,
+                                             failed_ips, questionable_ips,
                                              vpc_info, con, routes_in_rts)
 
     # Now go over all the routes in the spec and add those that aren't in VPC,
     # yet.
-    _add_missing_routes(route_spec, failed_ips, chosen_routers,
+    _add_missing_routes(route_spec, failed_ips, questionable_ips,
+                        chosen_routers,
                         vpc_info, con, routes_in_rts)
 
 
-def handle_spec(region_name, vpc_id, route_spec, failed_ips):
+def handle_spec(region_name, vpc_id, route_spec, failed_ips, questionable_ips):
     """
     Connect to region and update routes according to route spec.
 
@@ -527,7 +570,8 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips):
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
-        process_route_spec_config(con, vpc_info, route_spec, failed_ips)
+        process_route_spec_config(con, vpc_info, route_spec,
+                                  failed_ips, questionable_ips)
         con.close()
     except boto.exception.StandardError as e:
         logging.warning("vpc-router could not set route: %s - %s" %

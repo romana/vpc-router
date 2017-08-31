@@ -39,6 +39,7 @@ class _CurrentState(object):
         self.versions         = ""
         self.plugins          = []
         self.failed_ips       = []
+        self.questionable_ips = []
         self.working_set      = []
         self.route_spec       = {}
         self.routes           = {}
@@ -87,14 +88,15 @@ class _CurrentState(object):
         """
         if path == "ips":
             return {
-                "failed_ips"     : self.failed_ips,
-                "working_set"    : self.working_set,
+                "failed_ips"       : self.failed_ips,
+                "questionable_ips" : self.questionable_ips,
+                "working_set"      : self.working_set,
             }
 
         if path == "route_info":
             return {
-                "route_spec"     : self.route_spec,
-                "routes"         : self.routes,
+                "route_spec" : self.route_spec,
+                "routes"     : self.routes,
             }
 
         if path == "plugins":
@@ -105,16 +107,16 @@ class _CurrentState(object):
 
         if path == "":
             return {
-                "SERVER"             : {
-                    "version"        : self.versions,
-                    "start_time"     : self.starttime.isoformat(),
-                    "current_time"   : datetime.datetime.now().isoformat()
+                "SERVER"           : {
+                    "version"      : self.versions,
+                    "start_time"   : self.starttime.isoformat(),
+                    "current_time" : datetime.datetime.now().isoformat()
                 },
-                "params" : self.render_main_params(),
-                "plugins"            : {"_href" : "/plugins"},
-                "ips"                : {"_href" : "/ips"},
-                "route_info"         : {"_href" : "/route_info"},
-                "vpc"                : {"_href" : "/vpc"}
+                "params"     : self.render_main_params(),
+                "plugins"    : {"_href" : "/plugins"},
+                "ips"        : {"_href" : "/ips"},
+                "route_info" : {"_href" : "/route_info"},
+                "vpc"        : {"_href" : "/vpc"}
             }
 
     def as_json(self, path="", with_indent=False):

@@ -57,15 +57,19 @@ class MonitorPlugin(object):
         This includes all parameters, not just the ones specific to the
         plugin.
 
-        Also creates two queues:
+        Also creates three queues:
         * A queue to receive updated sets of IP addresses.
         * A queue to send out notices of failed IP addresses.
+        * A queue to inform about questionable or failing IPs (still
+          operational, but with some indication that it will soon change).
 
         """
-        self.conf          = conf
-        self.q_monitor_ips = Queue.Queue()
-        self.q_failed_ips  = Queue.Queue()
-        self.thread_name   = thread_name
+        self.conf               = conf
+        self.thread_name        = thread_name
+
+        self.q_monitor_ips      = Queue.Queue()
+        self.q_failed_ips       = Queue.Queue()
+        self.q_questionable_ips = Queue.Queue()
 
     def get_plugin_name(self):
         return type(self).__name__.lower()
@@ -86,11 +90,12 @@ class MonitorPlugin(object):
 
     def get_queues(self):
         """
-        Return the queues, which the plugin uses to receive new IP lists and to
-        announce lists of failed IPs.
+        Return the queues, which the plugin uses to receive new IP lists, to
+        announce lists of failed IPs and to communicate about questionable IP
+        addresses.
 
         """
-        return (self.q_monitor_ips, self.q_failed_ips)
+        return (self.q_monitor_ips, self.q_failed_ips, self.q_questionable_ips)
 
     def get_new_working_set(self):
         """
