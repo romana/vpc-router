@@ -425,6 +425,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                              "%s -> %s (%s, %s)" %
                              (rt.id, dcidr,
                               ipaddr, inst_id, eni_id))
+                CURRENT_STATE.routes[dcidr] = (ipaddr, inst_id, eni_id)
                 _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="Current: Route exist and up to date")
                 continue
@@ -433,6 +434,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                 # We've tried to set a route for this before, but
                 # couldn't find any health hosts. Can't do anything and
                 # need to skip.
+                CURRENT_STATE.routes[dcidr] = (ipaddr, inst_id, eni_id)
                 _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
                                  msg="None healthy, black hole: "
                                      "Determined earlier")
@@ -453,6 +455,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                 if new_router_ip is None:
                     # Couldn't find healthy host to be router, forced
                     # to skip this one.
+                    CURRENT_STATE.routes[dcidr] = (ipaddr, inst_id, eni_id)
                     chosen_routers[dcidr] = NONE_HEALTHY
                     logging.warning("--- cannot find available target "
                                     "for route update %s! "
