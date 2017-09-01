@@ -321,7 +321,7 @@ def _get_host_for_route(vpc_info, route, route_table, dcidr):
             instance = vpc_info['instance_by_id'].get(route.instance_id)
             if not instance:
                 logging.info("--- instance in route in RT '%s' can't "
-                             "be found: %s -> %s (instance '%s')" %
+                             "be found: %s -> ... (instance '%s')" %
                              (route_table.id, dcidr, route.instance_id))
                 raise _CouldNotIdentifyHost()
             inst_id = instance.id
