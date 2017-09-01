@@ -185,6 +185,10 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. No failed IPs.'),
+            ('root',
+             'INFO',
+             "--- eni in route in RT 'rtb-84dc7f2c' can't be found: "
+             "10.1.0.0/16 -> (none) (instance '%s')" % i1.id),
             ('root', 'INFO',
              "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
              "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
@@ -198,6 +202,11 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. No failed IPs.'),
+            ('root',
+             'INFO',
+             "--- eni in route in RT 'rtb-84dc7f2c' can't be found: "
+             "10.1.0.0/16 -> (none) (instance '%s')" %
+             i2.id),
             ('root', 'INFO',
              "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
              "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
@@ -211,6 +220,10 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check(
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s' % self.i1ip),
+            ('root',
+             'INFO',
+             "--- eni in route in RT 'rtb-84dc7f2c' can't be found: "
+             "10.1.0.0/16 -> (none) (instance '%s')" % i1.id),
             ('root', 'INFO',
              "--- updating existing route in RT '%s' 10.1.0.0/16 -> "
              "%s (%s, %s) (old IP: None, reason: old IP failed/questionable "
@@ -226,6 +239,10 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'DEBUG',
              'Route spec processing. Failed IPs: %s,%s' %
              (self.i1ip, self.i2ip)),
+            ('root',
+             'INFO',
+             "--- eni in route in RT 'rtb-84dc7f2c' can't be found: "
+             "10.1.0.0/16 -> (none) (instance '%s')" % i2.id),
             ('root', 'WARNING',
              '--- cannot find available target for route update 10.1.0.0/16! '
              'Nothing I can do...'))
@@ -240,10 +257,13 @@ class TestVpcBotoInteractions(unittest.TestCase):
         vpc.process_route_spec_config(con, d, route_spec, [], [])
         self.lc.check(
             ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
+            ('root',
+             'INFO',
+             "--- eni in route in RT 'rtb-84dc7f2c' can't be found: "
+             "10.1.0.0/16 -> (none) (instance '%s')" % i2.id),
             ('root', 'INFO',
              "--- route not in spec, deleting in RT '%s': "
-             "10.1.0.0/16 -> ... (%s, (unknown))" %
-             (rt_id, i2.id)),
+             "10.1.0.0/16 -> ... ((unknown), (unknown))" % rt_id),
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.2.0.0/16 -> %s (%s, %s)" %

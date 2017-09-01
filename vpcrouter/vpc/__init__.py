@@ -301,41 +301,66 @@ def _get_host_for_route(vpc_info, route, route_table, dcidr):
     Given a specific route, return information about the instance to which it
     points.
 
+    Returns 3-tuple: instance-id, ipaddr, eni-id
+
     Need to take care of scenarios where the instance isn't set anymore in the
     route (the instance may have disappeared).
 
     """
-    # The instance_id in the route may be None. We can get this in case of a
-    # black-hole route.
-    if route.instance_id:
-        instance    = vpc_info['instance_by_id'][route.instance_id]
-        inst_id     = instance.id if instance else "(unknown)"
-        ipaddr, eni = get_instance_private_ip_from_route(instance, route)
-        eni_id      = eni.id if eni else "(unknown)"
+    class _CouldNotIdentifyHost(Exception):
+        # If we can't find both the instance as well as an eni for the route,
+        # we will raise this exception. In that case, we'll return None/unknown
+        # values, which indicate to the calling code that a new instance should
+        # be found.
+        pass
 
-        # If route points to outdated instance, set ipaddr and eni to
-        # None to signal that route needs to be updated
-        real_instance = _get_real_instance_if_mismatch(
-                                    vpc_info, ipaddr, instance, eni)
-        if real_instance:
+    try:
+        # The instance_id in the route may be None. We can get this in case of
+        # a black-hole route.
+        if route.instance_id:
+            instance = vpc_info['instance_by_id'].get(route.instance_id)
+            if not instance:
+                logging.info("--- instance in route in RT '%s' can't "
+                             "be found: %s -> %s (instance '%s')" %
+                             (route_table.id, dcidr, route.instance_id))
+                raise _CouldNotIdentifyHost()
+            inst_id = instance.id
+
+            ipaddr, eni = get_instance_private_ip_from_route(instance, route)
+            if not eni:
+                logging.info("--- eni in route in RT '%s' can't "
+                             "be found: %s -> %s (instance '%s')" %
+                             (route_table.id, dcidr,
+                              ipaddr if ipaddr else "(none)",
+                              inst_id))
+                raise _CouldNotIdentifyHost()
+            eni_id = eni.id
+
+            # If route points to outdated instance, set ipaddr and eni to
+            # None to signal that route needs to be updated
+            real_instance = _get_real_instance_if_mismatch(
+                                        vpc_info, ipaddr, instance, eni)
+            if real_instance:
+                logging.info("--- obsoleted route in RT '%s' "
+                             "%s -> %s (%s, %s) (new instance with same "
+                             "IP address should be used: %s)" %
+                             (route_table.id, dcidr, ipaddr, inst_id, eni_id,
+                              real_instance.id))
+                # Setting the ipaddr and eni to None signals code further
+                # down that the route must be updated.
+                raise _CouldNotIdentifyHost()
+
+        else:
+            # This route didn't point to an instance anymore, probably
+            # a black hole route
             logging.info("--- obsoleted route in RT '%s' "
-                         "%s -> %s (%s, %s) (new instance with same "
-                         "IP address should be used: %s)" %
-                         (route_table.id, dcidr, ipaddr, instance.id, eni.id,
-                          real_instance.id))
-            # Setting the ipaddr and eni to None signals code further
-            # down that the route must be updated.
-            inst_id = eni_id = "(unknown)"
-            ipaddr  = None
+                         "%s -> ... (doesn't point to instance anymore)" %
+                         (route_table.id, dcidr))
+            raise _CouldNotIdentifyHost()
 
-    else:
-        # This route didn't point to an instance anymore, probably
-        # a black hole route
+    except _CouldNotIdentifyHost:
         inst_id = eni_id = "(unknown)"
         ipaddr  = None
-        logging.info("--- obsoleted route in RT '%s' "
-                     "%s -> ... (doesn't point to instance anymore)" %
-                     (route_table.id, dcidr))
 
     return inst_id, ipaddr, eni_id
 
