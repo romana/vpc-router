@@ -182,8 +182,10 @@ class MonitorPlugin(object):
         # This is our working set. This list may be updated occasionally when
         # we receive messages on the q_monitor_ips queue. But irrespective of
         # any received updates, the list of IPs in here is regularly checked.
-        list_of_ips          = []
-        currently_failed_ips = set()
+        list_of_ips                = []
+
+        currently_failed_ips       = set()
+        currently_questionable_ips = set()
 
         # Accumulating failed IPs for 10 intervals before rechecking them to
         # see if they are alive again
@@ -203,9 +205,15 @@ class MonitorPlugin(object):
                     currently_failed_ips = \
                             set([ip for ip in currently_failed_ips
                                  if ip in list_of_ips])
+                    # Same for the questionable IPs
+                    currently_questionable_ips = \
+                            set([ip for ip in currently_questionable_ips
+                                 if ip in list_of_ips])
 
                 # Don't check failed IPs for liveness on every interval. We
                 # keep a list of currently-failed IPs for that purpose.
+                # But we will check questionable IPs, so we don't exclude
+                # those.
                 live_ips_to_check = [ip for ip in list_of_ips if
                                      ip not in currently_failed_ips]
                 logging.debug("Checking live IPs: %s" %
@@ -216,7 +224,8 @@ class MonitorPlugin(object):
                 # in the working set and send messages out about any failed
                 # ones as necessary.
                 if live_ips_to_check:
-                    failed_ips = self.do_health_checks(live_ips_to_check)
+                    failed_ips, questionable_ips = \
+                                    self.do_health_checks(live_ips_to_check)
                     if failed_ips:
                         # Update list of currently failed IPs with any new ones
                         currently_failed_ips.update(failed_ips)
@@ -225,12 +234,25 @@ class MonitorPlugin(object):
                         # Let the main loop know the full set of failed IPs
                         self.q_failed_ips.put(list(currently_failed_ips))
 
+                    if questionable_ips:
+                        # Update list of currently questionable IPs with any
+                        # new ones
+                        currently_questionable_ips.update(failed_ips)
+                        logging.info('Currently questionable IPs: %s' %
+                                     ",".join(currently_questionable_ips))
+                        # Let the main loop know the full set of questionable
+                        # IPs
+                        self.q_questionable_ips.put(
+                                            list(currently_questionable_ips))
+
                 if interval_count == recheck_failed_interval:
                     # Ever now and then clean out our currently failed IP cache
                     # so that we can recheck them to see if they are still
-                    # failed.
-                    interval_count = 0
-                    currently_failed_ips = set()
+                    # failed. We also clear out the questionable IPs, so that
+                    # they don't forever accumulate.
+                    interval_count             = 0
+                    currently_failed_ips       = set()
+                    currently_questionable_ips = set()
 
                 # Wait until next monitoring interval: We deduct the time we
                 # spent in this loop.

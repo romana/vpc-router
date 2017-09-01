@@ -38,6 +38,7 @@ class _CurrentState(object):
         self.starttime        = datetime.datetime.now()
         self.versions         = ""
         self.plugins          = []
+        self.plugin_by_name   = {}
         self.failed_ips       = []
         self.questionable_ips = []
         self.working_set      = []
@@ -59,6 +60,7 @@ class _CurrentState(object):
         info from each plugin.
 
         """
+        self.plugin_by_name[plugin.get_plugin_name()] = plugin
         self.plugins.append(plugin)
 
     def get_plugins_info(self):

@@ -103,7 +103,7 @@ class Icmpecho(common.MonitorPlugin):
         """
         Perform a health check on a list of IP addresses, using ICMPecho.
 
-        Return the list of those addresses that failed the test.
+        Return tuple with list of failed IPs and questionable IPs.
 
         """
         # Calculate a decent overall timeout time for a ping attempt: 3/4th of
@@ -129,7 +129,7 @@ class Icmpecho(common.MonitorPlugin):
             # Need to assume all IPs failed
             no_responses = list_of_ips
 
-        return no_responses
+        return no_responses, []  # return empty list for questionable IPs
 
     def start(self):
         """

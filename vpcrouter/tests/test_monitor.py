@@ -44,12 +44,12 @@ class TestPingPlugin(unittest.TestCase):
             "icmp_check_interval" : 2
         }
         p = icmpecho.Icmpecho(conf)
-        res = p.do_health_checks(["127.0.0.1"])
+        failed_ips, questionable_ips = p.do_health_checks(["127.0.0.1"])
         if os.geteuid() != 0:
             print "@@@ Not running as root, can't test ping."
-            self.assertEqual(res, ["127.0.0.1"])
+            self.assertEqual(failed_ips, ["127.0.0.1"])
         else:
-            self.assertEqual(len(res), 0)
+            self.assertEqual(len(failed_ips), 0)
 
 
 class TestTcpPlugin(unittest.TestCase):
@@ -92,7 +92,7 @@ class TestQueues(unittest.TestCase):
         # failure: All IPs starting with _FAILED_PREFIX are added to the output
         # (which is a list of failed IPs).
         def new_do_health_checks(addrs):
-            return [a for a in addrs if a.startswith(_FAILED_PREFIX)]
+            return [a for a in addrs if a.startswith(_FAILED_PREFIX)], []
 
         # Now we install this new healthcheck function in place of the original
         # one. Clearly, this is a white box test: We know about the inner

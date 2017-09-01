@@ -71,7 +71,7 @@ class Tcp(common.MonitorPlugin):
         Each check (we use a TCP connection attempt) is run in its own thread.
 
         Gather up the results and return the list of those addresses that
-        failed the test.
+        failed the test and the list of questionable IPs.
 
         TODO: Currently, this starts a thread for every single address we want
         to check. That's probably not a good idea if we have thousands of
@@ -96,7 +96,7 @@ class Tcp(common.MonitorPlugin):
             thread.join()
 
         # ... and send back all the failed IPs.
-        return results
+        return results, []   # return empty list for questionable IPs
 
     def start(self):
         """

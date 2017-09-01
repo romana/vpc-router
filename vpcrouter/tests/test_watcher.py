@@ -298,7 +298,7 @@ class TestWatcherConfigfile(TestBase):
         # the tests. Will indicate failure for all IP addresses starting with
         # "3."
         def new_do_health_checks(s, addrs):
-            return [a for a in addrs if a.startswith("3.")]
+            return [a for a in addrs if a.startswith("3.")], []
 
         # We do this in the class, before the plugin is instantiated
         self.health_plugin_class.do_health_checks = new_do_health_checks
