@@ -70,6 +70,10 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
     parser.add_argument('-v', '--vpc', dest="vpc_id",
                         required=False, default=None,
                         help="the ID of the VPC in which to operate")
+    parser.add_argument('--ignore_routes', dest="ignore_routes",
+                        required=False, default=None,
+                        help="Comma separated list of CIDRs or IPs for "
+                             "routes which vpc-router should ignore.")
     parser.add_argument('--route_recheck_interval',
                         dest="route_recheck_interval",
                         required=False, default="30", type=int,
@@ -91,7 +95,7 @@ def _setup_arg_parser(args_list, watcher_plugin_class, health_plugin_class):
                              "default: %s" % monitor.MONITOR_DEFAULT_PLUGIN)
 
     arglist = ["logfile", "region_name", "vpc_id", "route_recheck_interval",
-               "verbose", "addr", "port", "mode", "health"]
+               "verbose", "addr", "port", "mode", "health", "ignore_routes"]
 
     # Inform the CurrentState object of the main config parameter names, which
     # should be rendered in an overview.
@@ -156,6 +160,13 @@ def _parse_args(args_list, watcher_plugin_class, health_plugin_class):
         # Check if a proper address was specified (already raises a suitable
         # ArgsError if not)
         utils.ip_check(conf['addr'])
+
+    if conf['ignore_routes']:
+        # Parse the list of addresses and CIDRs
+        for a in conf['ignore_routes'].split(","):
+            a = a.strip()
+            a = utils.check_valid_ip_or_cidr(a, return_as_cidr=True)
+            CURRENT_STATE.ignore_routes.append(a)
 
     # Store a reference to the config dict in the current state
     CURRENT_STATE.conf = conf

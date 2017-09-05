@@ -47,6 +47,7 @@ class _CurrentState(object):
         self.vpc_state        = {}
         self.conf             = None
         self.main_param_names = []
+        self.ignore_routes    = []
         self._vpc_router_http = None
         self._stop_all        = False
 
@@ -97,8 +98,9 @@ class _CurrentState(object):
 
         if path == "route_info":
             return {
-                "route_spec" : self.route_spec,
-                "routes"     : self.routes,
+                "route_spec"    : self.route_spec,
+                "routes"        : self.routes,
+                "ignore_routes" : self.ignore_routes
             }
 
         if path == "plugins":

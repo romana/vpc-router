@@ -26,7 +26,8 @@ from StringIO import StringIO
 
 import vpcrouter.main as main
 
-from vpcrouter.errors import ArgsError
+from vpcrouter.errors       import ArgsError
+from vpcrouter.currentstate import CURRENT_STATE
 
 
 class TestArgs(unittest.TestCase):
@@ -68,7 +69,7 @@ class TestArgs(unittest.TestCase):
                  'verbose': False, 'addr': 'localhost', 'mode': 'http',
                  'vpc_id': '123', 'logfile': 'foo', 'health' : 'icmpecho',
                  'icmp_check_interval' : 2.0, 'port': 33289,
-                 'route_recheck_interval' : 30,
+                 'route_recheck_interval' : 30, 'ignore_routes' : None,
                  'region_name': 'foo'}},
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo',
                        '-m', 'configfile'],
@@ -90,7 +91,13 @@ class TestArgs(unittest.TestCase):
             {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
                        '-a', '999.9'],
              "exc" : ArgsError, "watcher_plugin" : "http",
-             "out" : "Not a valid IP address"}
+             "out" : "Not a valid IP address"},
+            {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
+                       '--ignore_routes', '10.1.1'],
+             "exc" : ArgsError},
+            {"args" : ['-l', 'foo', '-v', '123', '-r', 'foo', '-m', 'http',
+                       '--ignore_routes', '10.1.1.1,10.1.2.0/24,0.0.0.0/0'],
+             "exc" : None},
         ]
 
         for i in inp:
@@ -123,6 +130,11 @@ class TestArgs(unittest.TestCase):
                     self.assertTrue(out in ll)
                 if conf:
                     self.assertEqual(conf, conf_is)
+
+        # The last set of arguments should have resulted in some CIDRs being
+        # written into current-state
+        self.assertEqual(CURRENT_STATE.ignore_routes,
+                         ['10.1.1.1/32', '10.1.2.0/24', '0.0.0.0/0'])
 
 
 if __name__ == '__main__':

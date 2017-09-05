@@ -28,6 +28,7 @@ import boto.utils
 
 from vpcrouter.errors       import VpcRouteSetError
 from vpcrouter.currentstate import CURRENT_STATE
+from vpcrouter.utils        import is_cidr_in_cidr
 
 
 def get_ec2_meta_data():
@@ -365,6 +366,24 @@ def _get_host_for_route(vpc_info, route, route_table, dcidr):
     return inst_id, ipaddr, eni_id
 
 
+def _is_cidr_in_ignore_routes(cidr):
+    """
+    Checks the CIDR to see if it falls into any CIDRs specified via the
+    ignore_routes parameter.
+
+    This is used mostly to protect special routes to specific instances (for
+    example proxies, etc.), so that the vpc-router does not clean those up.
+
+    Only used to govern cleanup of routes, is not consulted when creating
+    routes.
+
+    """
+    for ignore_cidr in CURRENT_STATE.ignore_routes:
+        if is_cidr_in_cidr(cidr, ignore_cidr):
+            return True
+    return False
+
+
 def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                             vpc_info, con, routes_in_rts):
     """
@@ -388,6 +407,18 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
         # Iterate over all the routes we find in each RT
         for r in rt.routes:
             dcidr = r.destination_cidr_block
+
+            if _is_cidr_in_ignore_routes(dcidr):
+                # A list of CIDRs may have been specified on the command line
+                # via the --ignore_routes option. If the destination CIDR of
+                # this route here is contained in any of those specified CIDRs
+                # then we will not touch or change this route. Often this is
+                # used to protect routes to special instances, such as
+                # proxies or NAT instances.
+                _rt_state_update(rt.id, dcidr,
+                                 msg="Ignored: Protected CIDR.")
+                continue
+
             if r.instance_id is None and r.interface_id is None:
                 # There are some routes already present in the route table,
                 # which we don't need to mess with. Specifically, routes that
