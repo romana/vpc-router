@@ -26,7 +26,8 @@ import random
 from moto          import mock_ec2_deprecated
 from testfixtures  import LogCapture
 
-from vpcrouter import vpc
+from vpcrouter              import vpc
+from vpcrouter.currentstate import CURRENT_STATE
 
 from . import test_common
 
@@ -267,6 +268,25 @@ class TestVpcBotoInteractions(unittest.TestCase):
             ('root', 'INFO',
              "--- adding route in RT '%s' "
              "10.2.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
+
+        # Protect old route (ignore_routes), add new route, watch the old route
+        # NOT disappear.
+        CURRENT_STATE.ignore_routes.append("10.2.0.0/16")  # protected route
+        route_spec = {
+                         u"10.3.0.0/16" : [self.i1ip]
+                     }
+
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.lc.clear()
+        vpc.process_route_spec_config(con, d, route_spec, [], [])
+        # See in the logs that 10.2.0.0/16 wasn't deleted, even though it's not
+        # in the route spec anymore.
+        self.lc.check(
+            ('root', 'DEBUG', 'Route spec processing. No failed IPs.'),
+            ('root', 'INFO',
+             "--- adding route in RT '%s' "
+             "10.3.0.0/16 -> %s (%s, %s)" %
              (rt_id, self.i1ip, i1.id, eni1.id)))
 
     @mock_ec2_deprecated

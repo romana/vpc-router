@@ -21,7 +21,9 @@ limitations under the License.
 
 import unittest
 
-from vpcrouter.utils  import ip_check
+from vpcrouter.utils  import ip_check, \
+                             check_valid_ip_or_cidr, \
+                             is_cidr_in_cidr
 from vpcrouter.errors import ArgsError
 
 
@@ -50,6 +52,76 @@ class TestIpCheck(unittest.TestCase):
                             ("1.1.1.0/33", True)
                         ]:
             self.assertRaises(ArgsError, ip_check, ip, flag)
+
+    def test_valid_ip_or_cidr(self):
+        #
+        # Specific tests for the test_valid_ip_or_cidr
+        #
+        test_data = [
+            {
+                "inp" : {"val" : "0.0.0.0",     "return_as_cidr" : False},
+                "out" : {"val" : "0.0.0.0",     "exc" : None}
+            },
+            {
+                "inp" : {"val" : "0.0.0.0",     "return_as_cidr" : True},
+                "out" : {"val" : "0.0.0.0/0",   "exc" : None}
+            },
+            {
+                "inp" : {"val" : "0.0.0.0/10",  "return_as_cidr" : True},
+                "out" : {"val" : "0.0.0.0/10",  "exc" : None}
+            },
+            {
+                "inp" : {"val" : "0.0.0.0/10",  "return_as_cidr" : False},
+                "out" : {"val" : "0.0.0.0/10",  "exc" : None}
+            },
+            {
+                "inp" : {"val" : "10.1.2.3",    "return_as_cidr" : True},
+                "out" : {"val" : "10.1.2.3/32", "exc" : None}
+            },
+            {
+                "inp" : {"val" : "10.1.2.3",    "return_as_cidr" : False},
+                "out" : {"val" : "10.1.2.3",    "exc" : None}
+            },
+            {
+                "inp" : {"val" : "101.2.3",     "return_as_cidr" : False},
+                "out" : {"val" : None,          "exc" : ArgsError}
+            },
+            {
+                "inp" : {"val" : "301.2.3.0",   "return_as_cidr" : True},
+                "out" : {"val" : None,          "exc" : ArgsError}
+            },
+            {
+                "inp" : {"val" : "101.2.3/64",  "return_as_cidr" : True},
+                "out" : {"val" : None,          "exc" : ArgsError}
+            },
+            {
+                "inp" : {"val" : "101.2.3/32/2", "return_as_cidr" : True},
+                "out" : {"val" : None,          "exc" : ArgsError}
+            },
+        ]
+
+        for td in test_data:
+            val = td["inp"]["val"]
+            rac = td["inp"]["return_as_cidr"]
+            if td["out"]["exc"]:
+                self.assertRaises(ArgsError, check_valid_ip_or_cidr, val, rac)
+            else:
+                ret = check_valid_ip_or_cidr(val, rac)
+                self.assertEqual(ret, td["out"]["val"])
+
+    def test_cidr_in_cidr(self):
+        test_data = [
+            ({"small_cidr": "10.1.1.0/24", "big_cidr": "10.1.0.0/16"}, True),
+            ({"small_cidr": "10.1.1.0/24", "big_cidr": "10.1.1.0/24"}, True),
+            ({"small_cidr": "10.1.0.0/16", "big_cidr": "10.1.1.0/24"}, False),
+            ({"small_cidr": "10.2.1.0/24", "big_cidr": "10.1.0.0/16"}, False),
+            ({"small_cidr": "10.2.1.0/24", "big_cidr": "0.0.0.0/16"},  False),
+            ({"small_cidr": "10.2.1.0/24", "big_cidr": "0.0.0.0/0"},   False),
+            ({"small_cidr": "0.0.0.0/0",   "big_cidr": "10.0.0.0/8"},  False),
+            ({"small_cidr": "0.0.0.0/0",   "big_cidr": "0.0.0.0/0"},   True),
+        ]
+        for kwargs, res in test_data:
+            self.assertEqual(is_cidr_in_cidr(**kwargs), res)
 
 
 if __name__ == '__main__':

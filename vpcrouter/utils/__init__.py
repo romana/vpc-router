@@ -19,6 +19,7 @@ limitations under the License.
 # Utility functions, which are used by different modules.
 #
 
+import ipaddress
 import netaddr
 import Queue
 
@@ -42,6 +43,61 @@ def ip_check(ip, netmask_expected=False):
             raise ArgsError("Not a valid CIDR (%s)" % ip)
         else:
             raise ArgsError("Not a valid IP address (%s)" % ip)
+    except Exception as e:
+        raise ArgsError("Invalid format: %s" % str(e))
+
+
+def check_valid_ip_or_cidr(val, return_as_cidr=False):
+    """
+    Checks that the value is a valid IP address or a valid CIDR.
+
+    Returns the specified value.
+
+    If 'return_as_cidr' is set then the return value will always be in the form
+    of a CIDR, even if a plain IP address was specified.
+
+    """
+    is_ip = True
+    if "/" in val:
+        ip_check(val, netmask_expected=True)
+        is_ip = False
+    else:
+        ip_check(val, netmask_expected=False)
+
+    if return_as_cidr and is_ip:
+        # Convert a plain IP to a CIDR
+        if val == "0.0.0.0":
+            # Special case for the default route
+            val = "0.0.0.0/0"
+        else:
+            val = "%s/32" % val
+
+    try:
+        ipaddress.IPv4Network(unicode(val))
+    except Exception as e:
+        raise ArgsError("Not a valid network: %s" % str(e))
+
+    return val
+
+
+def is_cidr_in_cidr(small_cidr, big_cidr):
+    """
+    Return True if the small CIDR is contained in the big CIDR.
+
+    """
+    # The default route (0.0.0.0/0) is handled differently, since every route
+    # would always be contained in there. Instead, only a small CIDR of
+    # "0.0.0.0/0" can match against it. Other small CIDRs will always result in
+    # 'False' (not contained).
+    if small_cidr == "0.0.0.0/0":
+        return big_cidr == "0.0.0.0/0"
+    else:
+        if big_cidr == "0.0.0.0/0":
+            return False
+
+    s = ipaddress.IPv4Network(unicode(small_cidr))
+    b = ipaddress.IPv4Network(unicode(big_cidr))
+    return s.subnet_of(b)
 
 
 def read_last_msg_from_queue(q):
