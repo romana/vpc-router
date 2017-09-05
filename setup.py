@@ -57,6 +57,7 @@ setup(
         'wsgiref==0.1.2',
         'watchdog==0.8.3',
         'multiping>=1.0.4',
+        'ipaddress>=1.0.17'
     ],
     classifiers          = [
         'Programming Language :: Python',
