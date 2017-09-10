@@ -86,12 +86,14 @@ def get_vpc_overview(con, vpc_id, region_name):
     all_vpcs    = con.get_all_vpcs()
     if not all_vpcs:
         raise VpcRouteSetError("Cannot find any VPCs.")
-    vpc = None
+
     if not vpc_id:
         # Just grab the first available VPC and use it, if no VPC specified
         vpc = all_vpcs[0]
+        vpc_id = vpc.id
     else:
         # Search through the list of VPCs for the one with the specified ID
+        vpc = None
         for v in all_vpcs:
             if v.id == vpc_id:
                 vpc = v
@@ -221,6 +223,7 @@ def _update_route(dcidr, router_ip, old_router_ip,
     Update an existing route entry in the route table.
 
     """
+    instance = eni = None
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
 
@@ -228,12 +231,15 @@ def _update_route(dcidr, router_ip, old_router_ip,
                      "%s -> %s (%s, %s) (old IP: %s, reason: %s)" %
                      (route_table_id, dcidr, router_ip,
                       instance.id, eni.id, old_router_ip, update_reason))
+        try:
+            con.replace_route(
+                        route_table_id         = route_table_id,
+                        destination_cidr_block = dcidr,
+                        instance_id            = instance.id,
+                        interface_id           = eni.id)
+        except Exception as e:
+            raise Exception("replace_route failed: %s" % str(e))
 
-        con.replace_route(
-                    route_table_id         = route_table_id,
-                    destination_cidr_block = dcidr,
-                    instance_id            = instance.id,
-                    interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
     except Exception as e:
@@ -242,7 +248,9 @@ def _update_route(dcidr, router_ip, old_router_ip,
         update_reason += " [ERROR update route: %s]" % e.message
         logging.error(msg)
 
-    _rt_state_update(route_table_id, dcidr, router_ip, instance.id, eni.id,
+    _rt_state_update(route_table_id, dcidr, router_ip,
+                     instance.id if instance else "(none)",
+                     eni.id if eni else "(none)",
                      old_router_ip, update_reason)
 
 
@@ -263,16 +271,15 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
                          interface_id           = eni.id)
         CURRENT_STATE.routes[dcidr] = \
                                     (router_ip, str(instance.id), str(eni.id))
-        msg = "Added route"
+        _rt_state_update(route_table_id, dcidr, router_ip, instance.id, eni.id,
+                         msg="Added route")
 
     except Exception as e:
         logging.error("*** failed to add route in RT '%s' "
                       "%s -> %s (%s)" %
                       (route_table_id, dcidr, router_ip, e.message))
-        msg = "[ERROR add route: %s]" % e.message
-
-    _rt_state_update(route_table_id, dcidr, router_ip, instance.id, eni.id,
-                     msg=msg)
+        _rt_state_update(route_table_id, dcidr,
+                         msg="[ERROR add route: %s]" % e.message)
 
 
 def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
@@ -285,14 +292,16 @@ def _get_real_instance_if_mismatch(vpc_info, ipaddr, instance, eni):
 
     """
     # Careful! A route may be a black-hole route, which still has instance and
-    # eni information for an instance that doesn't exist anymore. If a host was
+    # ENI information for an instance that doesn't exist anymore. If a host was
     # terminated and a new host got the same IP then this route won't be
-    # updated and will keep pointing to a non-existing node.  So we find the
+    # updated and will keep pointing to a non-existing node. So we find the
     # instance by IP and check that the route really points to this instance.
+    inst_id = instance.id if instance else ""
+    eni_id  = eni.id if eni else ""
     if ipaddr:
         real_instance, real_eni = \
                         find_instance_and_eni_by_ip(vpc_info, ipaddr)
-        if real_instance.id != instance.id  or real_eni.id != eni.id:
+        if real_instance.id != inst_id  or real_eni.id != eni_id:
             return real_instance
     return None
 
@@ -441,6 +450,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                 logging.info("--- route not in spec, deleting in RT '%s': "
                              "%s -> ... (%s, %s)" %
                              (rt.id, dcidr, inst_id, eni_id))
+
                 con.delete_route(route_table_id         = rt.id,
                                  destination_cidr_block = dcidr)
                 if dcidr in CURRENT_STATE.routes:
@@ -488,7 +498,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
 
             if stored_router_ip == NONE_HEALTHY:
                 # We've tried to set a route for this before, but
-                # couldn't find any health hosts. Can't do anything and
+                # couldn't find any healthy hosts. Can't do anything and
                 # need to skip.
                 CURRENT_STATE.routes[dcidr] = (ipaddr, inst_id, eni_id)
                 _rt_state_update(rt.id, dcidr, ipaddr, inst_id, eni_id,
