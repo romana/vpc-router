@@ -1,11 +1,20 @@
 #!/bin/bash
 
-# Run all the unit tests and create a coverage report.
+# Run unit tests and create a coverage report.
+#
+# To run the test suite for the entire package, don't specify any options:
+#
+#    $ ./run_tests.sh
+#
+# To run specific tests, specify those as command line option:
+#
+#    $ ./run_tests.sh vpcrouter.tests.test_vpc.TestVpcUtil vpcrouter.tests.test_utils
 
-COVERAGE_REPORT_DIR=/tmp/vpc-router-coverage
-nosetests -v --with-coverage --cover-erase \
-          --cover-html --cover-html-dir=$COVERAGE_REPORT_DIR \
-          --cover-package vpcrouter
+rm .coverage*    # cover-erase with multiprocessing seemed to cause issues
+                 # (warning messages or some lines not shown as covered)
+                 # so deleting old cover files manually instead
 
-echo "@@@ Coverage report: file://$COVERAGE_REPORT_DIR/index.html"
+nosetests -v --config=nose.cfg $@
+
+echo "@@@ Coverage report: file:///tmp/vpc-router-coverage/index.html"
 echo

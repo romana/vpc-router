@@ -28,6 +28,7 @@ from testfixtures  import LogCapture
 
 from vpcrouter              import vpc
 from vpcrouter.currentstate import CURRENT_STATE
+from vpcrouter.errors       import VpcRouteSetError
 
 from . import test_common
 
@@ -127,8 +128,27 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # With a test VPC created, we now test our own functions
 
+        # In the mocked test the meta data won't contain the info we need (vpc
+        # and region name), because the emulated EC2 instance isn't in any
+        # region or vpc.
+        meta = vpc.get_ec2_meta_data()
+        self.assertTrue(meta == {})
+
+        self.assertRaises(VpcRouteSetError, vpc.connect_to_region, "blah")
+
         con = vpc.connect_to_region("ap-southeast-2")
+
+        # Error when specifying non-existent VPC
+        self.assertRaises(VpcRouteSetError, vpc.get_vpc_overview,
+                          con, "non-existent-vpc", "ap-southeast-2")
+
+        # Get the default: First VPC if no VPC is specified
+        d = vpc.get_vpc_overview(con, None, "ap-southeast-2")
+        self.assertEqual(d['vpc'].id, "vpc-be745e76")
+
+        # Get specified VPC
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        self.assertEqual(d['vpc'].id, "vpc-be745e76")
 
         self.assertEqual(
             sorted(['subnets', 'route_tables', 'instance_by_id',
@@ -144,13 +164,14 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.assertTrue(d['instance_by_id'][self.i1.id].id == self.i1.id)
         self.assertTrue(d['instance_by_id'][self.i2.id].id == self.i2.id)
 
+        self.assertRaises(VpcRouteSetError, vpc.find_instance_and_eni_by_ip,
+                          d, "9.9.9.9")     # Non existent IP
         self.assertTrue(vpc.find_instance_and_eni_by_ip(d, self.i1ip)[0].id ==
                         self.i1.id)
         self.assertTrue(vpc.find_instance_and_eni_by_ip(d, self.i2ip)[0].id ==
                         self.i2.id)
 
-    @mock_ec2_deprecated
-    def test_process_route_spec_config(self):
+    def _prepare_mock_env(self):
         self.make_mock_vpc()
 
         con = vpc.connect_to_region("ap-southeast-2")
@@ -161,6 +182,12 @@ class TestVpcBotoInteractions(unittest.TestCase):
         i2, eni2 = vpc.find_instance_and_eni_by_ip(d, self.i2ip)
 
         rt_id = d['route_tables'][0].id
+
+        return con, d, i1, eni1, i2, eni2, rt_id
+
+    @mock_ec2_deprecated
+    def test_process_route_spec_config(self):
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         route_spec = {
                          u"10.1.0.0/16" : [self.i1ip, self.i2ip]
@@ -290,6 +317,305 @@ class TestVpcBotoInteractions(unittest.TestCase):
              (rt_id, self.i1ip, i1.id, eni1.id)))
 
     @mock_ec2_deprecated
+    def test_add_new_route(self):
+        # Testing _add_new_route
+
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        self.lc.clear()
+        vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
+        self.lc.check(
+            ('root', 'INFO',
+             "--- adding route in RT '%s' "
+             "10.9.0.0/16 -> %s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id)))
+
+        self.lc.clear()
+        vpc._add_new_route("10.9.0.0/16", "99.99.99.99", d, con, rt_id)
+        self.lc.check(
+            ('root', 'ERROR',
+             "*** failed to add route in RT '%s' "
+             "10.9.0.0/16 -> 99.99.99.99 (Could not find instance/eni "
+             "for '99.99.99.99' in VPC '%s'.)" %
+             (rt_id, self.new_vpc.id)))
+
+    @mock_ec2_deprecated
+    def test_update_route(self):
+        # Testing _update_route
+
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
+
+        self.lc.clear()
+        vpc._update_route("10.9.0.0/16", self.i2ip, self.i1ip, d, con, rt_id,
+                          "foobar")
+        self.lc.check(
+            ('root', 'INFO',
+             "--- updating existing route in RT '%s' "
+             "10.9.0.0/16 -> %s (%s, %s) "
+             "(old IP: %s, reason: foobar)" %
+             (rt_id, self.i2ip, i2.id, eni2.id, self.i1ip)))
+
+        self.lc.clear()
+        vpc._update_route("10.9.0.0/16", "9.9.9.9", self.i2ip, d, con, rt_id,
+                          "foobar")
+        self.lc.check(
+            ('root', 'ERROR',
+             "*** failed to update route in RT '%s' "
+             "10.9.0.0/16 -> %s (Could not find instance/eni "
+             "for '9.9.9.9' in VPC '%s'.)" %
+             (rt_id, self.i2ip, self.new_vpc.id)))
+
+        # Trying to update a non-existent route
+        self.lc.clear()
+        vpc._update_route("10.9.9.9/16", self.i1ip, self.i2ip, d, con, rt_id,
+                          "foobar")
+        self.lc.check(
+            ('root', 'INFO',
+             "--- updating existing route in RT '%s' 10.9.9.9/16 -> %s "
+             "(%s, %s) (old IP: %s, reason: foobar)" %
+             (rt_id, self.i1ip, i1.id, eni1.id, self.i2ip)),
+            ('root', 'ERROR',
+             "*** failed to update route in RT '%s' 10.9.9.9/16 -> %s "
+             "(replace_route failed: u'%s~10.9.9.9/16')" %
+             (rt_id, self.i2ip, rt_id))
+        )
+
+    @mock_ec2_deprecated
+    def test_get_real_instance_if_mismatched(self):
+        # Testing _get_real_instance_if_mismatched
+
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        self.assertFalse(vpc._get_real_instance_if_mismatch(d, None, i1, eni1))
+        ret = vpc._get_real_instance_if_mismatch(d, self.i1ip, i1, eni1)
+        self.assertFalse(ret)
+
+        for inst, eni in [(i2, eni2), (i1, eni2), (i2, eni1),
+                          (i1, None), (None, eni1),
+                          (i2, None), (None, eni2), (None, None)]:
+            ret = vpc._get_real_instance_if_mismatch(d, self.i1ip, inst, eni)
+            self.assertEqual(ret.id, i1.id)
+
+    @mock_ec2_deprecated
+    def test_get_host_for_route(self):
+        # Testing _update_route
+
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
+
+        rt = d['route_tables'][0]
+        self.assertEqual(rt.id, rt_id)
+
+        route = rt.routes[0]
+        # Moto doesn't maintain intance or interface ID in the routes
+        # correctly, so need to set this one manually
+        route.instance_id  = i1.id
+        route.interface_id = eni1.id
+
+        # Find correct host for route (the passed in cidr is only used for
+        # logging)
+        self.assertEqual((i1.id, self.i1ip, eni1.id),
+                         vpc._get_host_for_route(d, route, rt, "cidr-log"))
+
+
+        # Look for broken route without an instance id
+        route.instance_id = None
+        self.lc.clear()
+        self.assertEqual(('(unknown)', None, '(unknown)'),
+                         vpc._get_host_for_route(d, route, rt, "cidr-log"))
+        self.lc.check(
+            ('root', 'INFO',
+              "--- obsoleted route in RT '%s' cidr-log -> "
+              "... (doesn't point to instance anymore)" % rt_id)
+        )
+
+        # Look for broken route with instance id for non-existent instance
+        route.instance_id = "blah"
+        self.lc.clear()
+        self.assertEqual(('(unknown)', None, '(unknown)'),
+                         vpc._get_host_for_route(d, route, rt, "cidr-log"))
+        self.lc.check(
+            ('root', 'INFO',
+             "--- instance in route in RT '%s' can't be found: "
+             "cidr-log -> ... (instance 'blah')" % rt_id)
+        )
+
+    @mock_ec2_deprecated
+    def test_update_existing_routes(self):
+        # Testing _update_route
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
+
+        route_spec = {
+                         u"10.0.0.0/16" : [self.i1ip]
+                     }
+        routes_in_rts = {}
+
+        # Test that a protected route doesn't get updated
+        self.lc.clear()
+        CURRENT_STATE.ignore_routes = ["10.0.0.0/8"]
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.assertTrue(rt_id in CURRENT_STATE.vpc_state['route_tables'])
+        self.assertTrue("10.0.0.0/16" in
+                        CURRENT_STATE.vpc_state['route_tables'][rt_id])
+        self.assertTrue("Ignored: Protected CIDR" in
+                        CURRENT_STATE.vpc_state['route_tables']
+                                               [rt_id]
+                                               ["10.0.0.0/16"])
+        self.lc.check()
+
+        # Now we un-protect the route and try again. Moto doesn't manage the
+        # instance or interface ID in routes, so this will fail, because the
+        # route doesn't look like it's pointing to an instance
+        CURRENT_STATE.ignore_routes = []
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.assertTrue("Ignored: Not a route to an instance" in
+                        CURRENT_STATE.vpc_state['route_tables']
+                                               [rt_id]
+                                               ["10.0.0.0/16"])
+        self.lc.check()
+
+        # Now we manually set the instance and eni id in the route, so that the
+        # test can proceed.
+        rt = d['route_tables'][0]
+        self.assertEqual(rt.id, rt_id)
+
+        route = rt.routes[0]
+        # Moto doesn't maintain intance or interface ID in the routes
+        # correctly, so need to set this one manually. This time the route spec
+        # won't contain eligible hosts.
+        route.instance_id            = i1.id
+        route.interface_id           = eni1.id
+        self.lc.clear()
+        route_spec = {
+                         u"10.0.0.0/16" : []
+                     }
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.lc.check(
+            ('root', 'INFO',
+             "--- route not in spec, deleting in RT '%s': 10.0.0.0/16 -> "
+             "... (%s, %s)" %
+             (rt_id, i1.id, eni1.id))
+        )
+
+        # Get a refresh, since deleting via Boto interface doesn't update the
+        # cached vpc-info
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        # There shouldn't be any routes left now
+        rt = d['route_tables'][0]
+        self.assertFalse(rt.routes)
+
+        # Now try again, but with proper route spec. First we need to create
+        # the route again and manually...
+        vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
+        # ... and update our cached vpc info
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        rt = d['route_tables'][0]
+        route              = rt.routes[0]
+        route.instance_id  = i1.id
+        route.interface_id = eni1.id
+
+        route_spec = {
+                         u"10.0.0.0/16" : [self.i2ip]
+                     }
+        # Only IP for spec is in failed IPs, can't do anything
+        self.lc.clear()
+        vpc._update_existing_routes(route_spec, [self.i2ip], [],
+                                    d, con, routes_in_rts)
+        self.lc.check(
+            ('root', 'WARNING',
+             '--- cannot find available target for route update '
+             '10.0.0.0/16! Nothing I can do...')
+        )
+
+        # Now with available IPs
+        self.lc.clear()
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.lc.check(
+            ('root', 'INFO',
+             "--- updating existing route in RT '%s' 10.0.0.0/16 -> "
+             "%s (%s, %s) (old IP: %s, reason: old IP failed/questionable "
+             "or not eligible anymore)" %
+             (rt_id, self.i2ip, i2.id, eni2.id, self.i1ip))
+        )
+
+        # Now with same route spec again
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        rt = d['route_tables'][0]
+        route              = rt.routes[0]
+        route.instance_id  = i2.id
+        route.interface_id = eni2.id
+        self.lc.clear()
+        routes_in_rts = {}
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.lc.check(
+            ('root', 'INFO',
+             "--- route exists already in RT '%s': 10.0.0.0/16 -> "
+             "%s (%s, %s)" %
+             (rt_id, self.i2ip, i2.id, eni2.id))
+        )
+
+    @mock_ec2_deprecated
+    def test_add_missing_routes(self):
+        # Testing _update_route
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+
+        route_spec = {
+                         u"10.0.0.0/16" : [self.i1ip]
+                     }
+        routes_in_rts = {}
+        self.lc.clear()
+        vpc._update_existing_routes(route_spec, [], [], d, con, routes_in_rts)
+        self.lc.check()
+
+        self.lc.clear()
+        vpc._add_missing_routes(route_spec, [], [], {}, d, con, routes_in_rts)
+        self.lc.check(
+            ('root', 'INFO',
+             "--- adding route in RT '%s' 10.0.0.0/16 -> "
+             "%s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id))
+        )
+
+        # The route exists already (passed in routes_in_rts), so no new route
+        # should be created here.
+        self.lc.clear()
+        vpc._add_missing_routes(route_spec, [], [],
+                                {"10.0.0.0/16" : self.i1ip},
+                                d, con, {rt_id : ["10.0.0.0/16"]})
+        self.lc.check()
+
+        # Force a route creation by passing nothing for routes_in_rts and
+        # passing in a 'previous' choice for the router
+        self.lc.clear()
+        vpc._add_missing_routes(route_spec, [], [],
+                                {"10.0.0.0/16" : self.i1ip},
+                                d, con, {rt_id : []})
+        self.lc.check(
+            ('root', 'INFO',
+             "--- adding route in RT '%s' 10.0.0.0/16 -> "
+             "%s (%s, %s)" %
+             (rt_id, self.i1ip, i1.id, eni1.id))
+        )
+
+        # Now try the same with the only possible IP in failed IPs.
+        self.lc.clear()
+        vpc._add_missing_routes(route_spec, [self.i1ip], [],
+                                {},
+                                d, con, {rt_id : []})
+        self.lc.check(
+            ('root', 'WARNING',
+             '--- cannot find available target for route addition '
+             '10.0.0.0/16! Nothing I can do...')
+        )
+
+
+
+    @mock_ec2_deprecated
     def test_handle_spec(self):
         self.make_mock_vpc()
 
@@ -298,6 +624,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
         con = vpc.connect_to_region("ap-southeast-2")
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
         i, eni = vpc.find_instance_and_eni_by_ip(d, self.i1ip)
+
         rt_id = d['route_tables'][0].id
 
         route_spec = {
