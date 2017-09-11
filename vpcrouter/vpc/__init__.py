@@ -134,8 +134,9 @@ def find_instance_and_eni_by_ip(vpc_info, ip):
     """
     for instance in vpc_info['instances']:
         for eni in instance.interfaces:
-            if eni.private_ip_address == ip:
-                return instance, eni
+            for pa in eni.private_ip_addresses:
+                if pa.private_ip_address == ip:
+                    return instance, eni
     raise VpcRouteSetError("Could not find instance/eni for '%s' "
                            "in VPC '%s'." % (ip, vpc_info['vpc'].id))
 

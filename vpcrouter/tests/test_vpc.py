@@ -318,8 +318,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_add_new_route(self):
-        # Testing _add_new_route
-
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         self.lc.clear()
@@ -341,8 +339,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_update_route(self):
-        # Testing _update_route
-
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
@@ -384,8 +380,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_get_real_instance_if_mismatched(self):
-        # Testing _get_real_instance_if_mismatched
-
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         self.assertFalse(vpc._get_real_instance_if_mismatch(d, None, i1, eni1))
@@ -400,8 +394,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_get_host_for_route(self):
-        # Testing _update_route
-
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
@@ -419,7 +411,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # logging)
         self.assertEqual((i1.id, self.i1ip, eni1.id),
                          vpc._get_host_for_route(d, route, rt, "cidr-log"))
-
 
         # Look for broken route without an instance id
         route.instance_id = None
@@ -445,7 +436,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_update_existing_routes(self):
-        # Testing _update_route
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
@@ -561,7 +551,6 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
     @mock_ec2_deprecated
     def test_add_missing_routes(self):
-        # Testing _update_route
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
         route_spec = {
@@ -613,7 +602,31 @@ class TestVpcBotoInteractions(unittest.TestCase):
              '10.0.0.0/16! Nothing I can do...')
         )
 
+    @mock_ec2_deprecated
+    def test_multi_address(self):
+        # Testing that we can find interfaces, which have the specified IP on a
+        # second, private IP address
+        con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
+        priv = eni1.private_ip_addresses[0]
+
+        priv = boto.ec2.networkinterface.PrivateIPAddress(
+                                                private_ip_address="10.9.9.9",
+                                                primary=False)
+        eni1.private_ip_addresses.append(priv)
+
+        self.lc.clear()
+        route_spec = {
+            "10.0.0.0/16" : ["10.9.9.9"]
+        }
+        self.lc.clear()
+        vpc._add_missing_routes(route_spec, [], [], {},
+                                d, con, {rt_id : []})
+        self.lc.check(
+            ('root', 'INFO',
+             "--- adding route in RT '%s' 10.0.0.0/16 -> 10.9.9.9 "
+             "(%s, %s)" % (rt_id, i1.id, eni1.id))
+        )
 
     @mock_ec2_deprecated
     def test_handle_spec(self):
