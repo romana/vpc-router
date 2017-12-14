@@ -108,6 +108,19 @@ def get_vpc_overview(con, vpc_id, region_name):
     # Now find the subnets, route tables and instances within this VPC
     d['subnets']      = con.get_all_subnets(filters=vpc_filter)
     d['route_tables'] = con.get_all_route_tables(filters=vpc_filter)
+
+    # Route tables are associated with subnets. Maintain a lookup table from
+    # subnet to (list of) route table(s). This is necessary later on, because
+    # we only want to set a route in an RT if the ENI to which we set the route
+    # is associated with the same subnet as the RT. That way, we don't have to
+    # set the route in all tables all the time.
+    d['subnet_rt_lookup'] = {}
+    for rt in d['route_tables']:
+        for assoc in rt.associations:
+            if hasattr(assoc, 'subnet_id'):
+                subnet_id = assoc.subnet_id
+                d['subnet_rt_lookup'].setdefault(subnet_id, []).append(rt.id)
+
     reservations      = con.get_all_reservations(filters=vpc_filter)
     d['instances']    = []
     for r in reservations:  # a reservation may have multiple instances
@@ -117,8 +130,6 @@ def get_vpc_overview(con, vpc_id, region_name):
     d['instance_by_id'] = {}
     for i in d['instances']:
         d['instance_by_id'][i.id] = i
-
-    # TODO: Need a way to find which route table we should focus on.
 
     return d
 
@@ -227,6 +238,16 @@ def _update_route(dcidr, router_ip, old_router_ip,
     instance = eni = None
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
+        # Only set the route if the ENI is associated with the same subnet as
+        # the route table
+        rts_for_subnet = vpc_info['subnet_rt_lookup'].get(eni.subnet_id)
+        if rts_for_subnet is not None and route_table_id not in rts_for_subnet:
+            logging.debug("--- skipping updating route in RT '%s' "
+                          "%s -> %s (%s, %s) since RT not associated "
+                          "with same subnet as ENI (ENI subnet: %s, RTs: %s)" %
+                          (route_table_id, dcidr, router_ip, instance.id,
+                           eni.id, eni.subnet_id, rts_for_subnet))
+            return
 
         logging.info("--- updating existing route in RT '%s' "
                      "%s -> %s (%s, %s) (old IP: %s, reason: %s)" %
@@ -262,6 +283,16 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
     """
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
+        # Only set the route if the ENI is associated with the same subnet as
+        # the route table
+        rts_for_subnet = vpc_info['subnet_rt_lookup'].get(eni.subnet_id)
+        if rts_for_subnet is not None and route_table_id not in rts_for_subnet:
+            logging.debug("--- skipping adding route in RT '%s' "
+                          "%s -> %s (%s, %s) since RT not associated "
+                          "with same subnet as ENI (ENI subnet: %s, RTs: %s)" %
+                          (route_table_id, dcidr, router_ip, instance.id,
+                           eni.id, eni.subnet_id, rts_for_subnet))
+            return
 
         logging.info("--- adding route in RT '%s' "
                      "%s -> %s (%s, %s)" %

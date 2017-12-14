@@ -152,7 +152,7 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         self.assertEqual(
             sorted(['subnets', 'route_tables', 'instance_by_id',
-                    'instances', 'zones', 'vpc']),
+                    'instances', 'subnet_rt_lookup', 'zones', 'vpc']),
             sorted(d.keys()))
 
         self.assertEqual(self.new_vpc.id, d['vpc'].id)
