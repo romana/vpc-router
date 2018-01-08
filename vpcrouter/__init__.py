@@ -15,4 +15,4 @@ limitations under the License.
 
 """
 
-__version__ = "1.8.6"
+__version__ = "1.8.9"

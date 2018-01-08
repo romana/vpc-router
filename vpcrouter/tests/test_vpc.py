@@ -152,7 +152,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         self.assertEqual(
             sorted(['subnets', 'route_tables', 'instance_by_id',
-                    'instances', 'subnet_rt_lookup', 'zones', 'vpc']),
+                    'ip_subnet_lookup', 'instances', 'rt_subnet_lookup',
+                    'zones', 'vpc']),
             sorted(d.keys()))
 
         self.assertEqual(self.new_vpc.id, d['vpc'].id)
@@ -178,10 +179,17 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
 
+        rt_id = d['route_tables'][0].id
+
+        con.associate_route_table(route_table_id=rt_id,
+                                  subnet_id=self.new_subnet_a.id)
+        con.associate_route_table(route_table_id=rt_id,
+                                  subnet_id=self.new_subnet_b.id)
+
+        d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+
         i1, eni1 = vpc.find_instance_and_eni_by_ip(d, self.i1ip)
         i2, eni2 = vpc.find_instance_and_eni_by_ip(d, self.i2ip)
-
-        rt_id = d['route_tables'][0].id
 
         return con, d, i1, eni1, i2, eni2, rt_id
 
@@ -193,6 +201,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
                          u"10.1.0.0/16" : [self.i1ip, self.i2ip]
                      }
 
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         # Process a simple route spec, a route should have been added
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [], [])
@@ -208,6 +218,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # One of the two IPs questionable, switch over
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [], [self.i1ip])
         self.lc.check(
@@ -225,6 +237,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # Now switch back
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [], [self.i2ip])
         self.lc.check(
@@ -243,6 +257,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
 
         # One of the two IPs failed, switch over
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [self.i1ip], [])
         self.lc.check(
@@ -281,6 +297,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
                      }
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [], [])
         self.lc.check(
@@ -305,6 +323,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
                      }
 
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         self.lc.clear()
         vpc.process_route_spec_config(con, d, route_spec, [], [])
         # See in the logs that 10.2.0.0/16 wasn't deleted, even though it's not
@@ -319,6 +339,11 @@ class TestVpcBotoInteractions(unittest.TestCase):
     @mock_ec2_deprecated
     def test_add_new_route(self):
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
+        route_spec = {
+            "10.9.0.0/16" : [self.i1ip]
+        }
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
 
         self.lc.clear()
         vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
@@ -341,9 +366,20 @@ class TestVpcBotoInteractions(unittest.TestCase):
     def test_update_route(self):
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
+        route_spec = {
+            "10.9.0.0/16" : [self.i1ip]
+        }
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
+
         vpc._add_new_route("10.9.0.0/16", self.i1ip, d, con, rt_id)
 
         self.lc.clear()
+        route_spec = {
+            "10.9.0.0/16" : [self.i2ip]
+        }
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         vpc._update_route("10.9.0.0/16", self.i2ip, self.i1ip, d, con, rt_id,
                           "foobar")
         self.lc.check(
@@ -438,11 +474,14 @@ class TestVpcBotoInteractions(unittest.TestCase):
     def test_update_existing_routes(self):
         con, d, i1, eni1, i2, eni2, rt_id = self._prepare_mock_env()
 
-        vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
-
         route_spec = {
                          u"10.0.0.0/16" : [self.i1ip]
                      }
+
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
+        vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
+
         routes_in_rts = {}
 
         # Test that a protected route doesn't get updated
@@ -475,11 +514,11 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.assertEqual(rt.id, rt_id)
 
         route = rt.routes[0]
-        # Moto doesn't maintain intance or interface ID in the routes
+        # Moto doesn't maintain instance or interface ID in the routes
         # correctly, so need to set this one manually. This time the route spec
         # won't contain eligible hosts.
-        route.instance_id            = i1.id
-        route.interface_id           = eni1.id
+        route.instance_id  = i1.id
+        route.interface_id = eni1.id
         self.lc.clear()
         route_spec = {
                          u"10.0.0.0/16" : []
@@ -495,23 +534,29 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # Get a refresh, since deleting via Boto interface doesn't update the
         # cached vpc-info
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         # There shouldn't be any routes left now
         rt = d['route_tables'][0]
         self.assertFalse(rt.routes)
 
         # Now try again, but with proper route spec. First we need to create
         # the route again and manually...
+        route_spec = {
+                         u"10.0.0.0/16" : [self.i2ip]
+                     }
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         vpc._add_new_route("10.0.0.0/16", self.i1ip, d, con, rt_id)
         # ... and update our cached vpc info
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         rt = d['route_tables'][0]
         route              = rt.routes[0]
         route.instance_id  = i1.id
         route.interface_id = eni1.id
 
-        route_spec = {
-                         u"10.0.0.0/16" : [self.i2ip]
-                     }
         # Only IP for spec is in failed IPs, can't do anything
         self.lc.clear()
         vpc._update_existing_routes(route_spec, [self.i2ip], [],
@@ -562,6 +607,8 @@ class TestVpcBotoInteractions(unittest.TestCase):
         self.lc.check()
 
         self.lc.clear()
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         vpc._add_missing_routes(route_spec, [], [], {}, d, con, routes_in_rts)
         self.lc.check(
             ('root', 'INFO',
@@ -614,12 +661,14 @@ class TestVpcBotoInteractions(unittest.TestCase):
                                                 private_ip_address="10.9.9.9",
                                                 primary=False)
         eni1.private_ip_addresses.append(priv)
+        vpc._make_ip_subnet_lookup(d)
 
         self.lc.clear()
         route_spec = {
             "10.0.0.0/16" : ["10.9.9.9"]
         }
-        self.lc.clear()
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         vpc._add_missing_routes(route_spec, [], [], {},
                                 d, con, {rt_id : []})
         self.lc.check(
@@ -636,13 +685,19 @@ class TestVpcBotoInteractions(unittest.TestCase):
         # output later on
         con = vpc.connect_to_region("ap-southeast-2")
         d = vpc.get_vpc_overview(con, self.new_vpc.id, "ap-southeast-2")
+        route_spec = {
+                         u"10.2.0.0/16" : [self.i1ip]
+                     }
+        d['cluster_node_subnets'] = \
+                        vpc.make_cluster_node_subnet_list(d, route_spec)
         i, eni = vpc.find_instance_and_eni_by_ip(d, self.i1ip)
 
         rt_id = d['route_tables'][0].id
 
-        route_spec = {
-                         u"10.2.0.0/16" : [self.i1ip]
-                     }
+        con.associate_route_table(route_table_id=rt_id,
+                                  subnet_id=self.new_subnet_a.id)
+        con.associate_route_table(route_table_id=rt_id,
+                                  subnet_id=self.new_subnet_b.id)
 
         # Test handle_spec
         vid = self.new_vpc.id
