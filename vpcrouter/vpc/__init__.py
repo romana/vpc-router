@@ -68,13 +68,36 @@ def connect_to_region(region_name):
     return con
 
 
+def _make_ip_subnet_lookup(vpc_info):
+    """
+    Updates the vpc-info object with a lookup for IP -> subnet.
+
+    """
+    # We create a reverse lookup from the instances private IP addresses to the
+    # subnets they are associated with. This is used later on in order to
+    # determine whether routes should be set in an RT: Is the RT's subnet
+    # associated with ANY of the IP addresses in the route spec? To make this
+    # easy, we collect the IPs and subnets of all EC2 instances in the VPC.
+    # Once we get a route spec, we create a list of subnets for only the
+    # cluster nodes. The assumption is that not all EC2 instances in the VPC
+    # necessarily belong to the cluster. We really want to narrow it down to
+    # the cluster nodes only. See make_cluster_node_subnet_list().
+    vpc_info['ip_subnet_lookup'] = {}
+    for instance in vpc_info['instances']:
+        for interface in instance.interfaces:
+            subnet_id = interface.subnet_id
+            for priv_addr in interface.private_ip_addresses:
+                vpc_info['ip_subnet_lookup'][priv_addr.private_ip_address] = \
+                                                                    subnet_id
+
+
 def get_vpc_overview(con, vpc_id, region_name):
     """
     Retrieve information for the specified VPC.
 
     If no VPC ID was specified then just pick the first VPC we find.
 
-    Returns a dict with the VPC's zones, subnets and route tables and
+    Returns a dict with the VPC's zones, subnets, route tables and
     instances.
 
     """
@@ -110,21 +133,29 @@ def get_vpc_overview(con, vpc_id, region_name):
     d['route_tables'] = con.get_all_route_tables(filters=vpc_filter)
 
     # Route tables are associated with subnets. Maintain a lookup table from
-    # subnet to (list of) route table(s). This is necessary later on, because
-    # we only want to set a route in an RT if the ENI to which we set the route
-    # is associated with the same subnet as the RT. That way, we don't have to
-    # set the route in all tables all the time.
-    d['subnet_rt_lookup'] = {}
+    # RT ID to (list of) subnets. This is necessary later on, because
+    # we only want to set a route in an RT if at least one of the ENIs we are
+    # dealing with is associated with the RT. That way, we don't have to set
+    # the route in all tables all the time.
+    d['rt_subnet_lookup'] = {}
     for rt in d['route_tables']:
         for assoc in rt.associations:
             if hasattr(assoc, 'subnet_id'):
                 subnet_id = assoc.subnet_id
-                d['subnet_rt_lookup'].setdefault(subnet_id, []).append(rt.id)
+                if subnet_id:
+                    d['rt_subnet_lookup'].setdefault(rt.id, []). \
+                                                            append(subnet_id)
 
-    reservations      = con.get_all_reservations(filters=vpc_filter)
-    d['instances']    = []
+    # Get all the cluster instances (all EC2 instances associated with this
+    # VPC).
+    reservations   = con.get_all_reservations(filters=vpc_filter)
+    d['instances'] = []
     for r in reservations:  # a reservation may have multiple instances
         d['instances'].extend(r.instances)
+
+    # Add reverse lookup from the instances private IP addresses to the
+    # subnets they are associated with. More info in the doc for that function.
+    _make_ip_subnet_lookup(d)
 
     # Maintain a quick instance lookup for convenience
     d['instance_by_id'] = {}
@@ -238,15 +269,20 @@ def _update_route(dcidr, router_ip, old_router_ip,
     instance = eni = None
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
-        # Only set the route if the ENI is associated with the same subnet as
-        # the route table
-        rts_for_subnet = vpc_info['subnet_rt_lookup'].get(eni.subnet_id)
-        if rts_for_subnet is not None and route_table_id not in rts_for_subnet:
+        # Only set the route if the RT is associated with any of the subnets
+        # used for the cluster.
+        rt_subnets           = \
+                    set(vpc_info['rt_subnet_lookup'].get(route_table_id, []))
+        cluster_node_subnets = \
+                    set(vpc_info['cluster_node_subnets'])
+        if not rt_subnets or not rt_subnets.intersection(cluster_node_subnets):
             logging.debug("--- skipping updating route in RT '%s' "
-                          "%s -> %s (%s, %s) since RT not associated "
-                          "with same subnet as ENI (ENI subnet: %s, RTs: %s)" %
+                          "%s -> %s (%s, %s) since RT's subnets (%s) are not "
+                          "part of the cluster (%s)." %
                           (route_table_id, dcidr, router_ip, instance.id,
-                           eni.id, eni.subnet_id, rts_for_subnet))
+                           eni.id,
+                           ", ".join(rt_subnets) if rt_subnets else "none",
+                           ", ".join(cluster_node_subnets)))
             return
 
         logging.info("--- updating existing route in RT '%s' "
@@ -283,15 +319,20 @@ def _add_new_route(dcidr, router_ip, vpc_info, con, route_table_id):
     """
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
-        # Only set the route if the ENI is associated with the same subnet as
-        # the route table
-        rts_for_subnet = vpc_info['subnet_rt_lookup'].get(eni.subnet_id)
-        if rts_for_subnet is not None and route_table_id not in rts_for_subnet:
+        # Only set the route if the RT is associated with any of the subnets
+        # used for the cluster.
+        rt_subnets           = \
+                    set(vpc_info['rt_subnet_lookup'].get(route_table_id, []))
+        cluster_node_subnets = \
+                    set(vpc_info['cluster_node_subnets'])
+        if not rt_subnets or not rt_subnets.intersection(cluster_node_subnets):
             logging.debug("--- skipping adding route in RT '%s' "
-                          "%s -> %s (%s, %s) since RT not associated "
-                          "with same subnet as ENI (ENI subnet: %s, RTs: %s)" %
+                          "%s -> %s (%s, %s) since RT's subnets (%s) are not "
+                          "part of the cluster (%s)." %
                           (route_table_id, dcidr, router_ip, instance.id,
-                           eni.id, eni.subnet_id, rts_for_subnet))
+                           eni.id,
+                           ", ".join(rt_subnets) if rt_subnets else "none",
+                           ", ".join(cluster_node_subnets)))
             return
 
         logging.info("--- adding route in RT '%s' "
@@ -653,6 +694,36 @@ def process_route_spec_config(con, vpc_info, route_spec,
                         vpc_info, con, routes_in_rts)
 
 
+def make_cluster_node_subnet_list(vpc_info, route_spec):
+    """
+    Create a list of subnets, which are associated with nodes in the current
+    route spec (cluster).
+
+    This is needed when later on we set routes, but only want to set routes in
+    those route tables, which are associated with a subnet that in turn is
+    associated with a cluster node (to avoid having to set the routes in all
+    RTs). We can check whether the RT's subnet is in this list here.
+
+    Returns list of subnet IDs.
+
+    """
+    # VPC-info already contains a lookup between the EC2 instances of the VPC
+    # and their subnets ('ip_subnet_lookup'). This may also contain some
+    # non-cluster nodes, but we can use this to look up the subnet for each IP
+    # address of cluster nodes.
+    subnets = set()
+    for cidr_ignore, hosts in route_spec.items():
+        for host_addr in hosts:
+            subnet_id = vpc_info['ip_subnet_lookup'].get(host_addr)
+            if not subnet_id:
+                logging.warning("Did not find subnet associated with "
+                                "host address '%s'!" % host_addr)
+            else:
+                subnets.add(subnet_id)
+
+    return list(subnets)
+
+
 def handle_spec(region_name, vpc_id, route_spec, failed_ips, questionable_ips):
     """
     Connect to region and update routes according to route spec.
@@ -671,6 +742,8 @@ def handle_spec(region_name, vpc_id, route_spec, failed_ips, questionable_ips):
     try:
         con      = connect_to_region(region_name)
         vpc_info = get_vpc_overview(con, vpc_id, region_name)
+        vpc_info['cluster_node_subnets'] = \
+                        make_cluster_node_subnet_list(vpc_info, route_spec)
         process_route_spec_config(con, vpc_info, route_spec,
                                   failed_ips, questionable_ips)
         con.close()
