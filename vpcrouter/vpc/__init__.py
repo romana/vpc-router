@@ -485,6 +485,7 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                           (rt.id,
                            ", ".join(rt_subnets) if rt_subnets else "none",
                            ", ".join(cluster_node_subnets)))
+            continue
 
         routes_in_rts[rt.id] = []
         # Iterate over all the routes we find in each RT
