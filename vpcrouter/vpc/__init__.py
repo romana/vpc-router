@@ -269,21 +269,6 @@ def _update_route(dcidr, router_ip, old_router_ip,
     instance = eni = None
     try:
         instance, eni = find_instance_and_eni_by_ip(vpc_info, router_ip)
-        # Only set the route if the RT is associated with any of the subnets
-        # used for the cluster.
-        rt_subnets           = \
-                    set(vpc_info['rt_subnet_lookup'].get(route_table_id, []))
-        cluster_node_subnets = \
-                    set(vpc_info['cluster_node_subnets'])
-        if not rt_subnets or not rt_subnets.intersection(cluster_node_subnets):
-            logging.debug("--- skipping updating route in RT '%s' "
-                          "%s -> %s (%s, %s) since RT's subnets (%s) are not "
-                          "part of the cluster (%s)." %
-                          (route_table_id, dcidr, router_ip, instance.id,
-                           eni.id,
-                           ", ".join(rt_subnets) if rt_subnets else "none",
-                           ", ".join(cluster_node_subnets)))
-            return
 
         logging.info("--- updating existing route in RT '%s' "
                      "%s -> %s (%s, %s) (old IP: %s, reason: %s)" %
@@ -485,6 +470,22 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
     chosen_routers = {}              # keep track of chosen routers for CIDRs
     NONE_HEALTHY   = "none-healthy"  # used as marker in chosen_routers
     for rt in vpc_info['route_tables']:
+        # Check whether this RT is associated with cluster node subnets. If it
+        # is not then we will perform NO operations on this RT. We will also
+        # not collect the routes from this RT.
+        rt_subnets           = \
+                    set(vpc_info.get('rt_subnet_lookup', {}).get(rt.id, []))
+        cluster_node_subnets = \
+                    set(vpc_info.get('cluster_node_subnets', []))
+        if cluster_node_subnets and \
+                        (not rt_subnets or
+                         not rt_subnets.intersection(cluster_node_subnets)):
+            logging.debug("Skipping processing of RT '%s' since RT's "
+                          "subnets (%s) are not part of cluster (%s)." %
+                          (rt.id,
+                           ", ".join(rt_subnets) if rt_subnets else "none",
+                           ", ".join(cluster_node_subnets)))
+
         routes_in_rts[rt.id] = []
         # Iterate over all the routes we find in each RT
         for r in rt.routes:
@@ -519,9 +520,10 @@ def _update_existing_routes(route_spec, failed_ips, questionable_ips,
                                 _get_host_for_route(vpc_info, r, rt, dcidr)
 
             if not hosts:
-                # The route isn't in the spec anymore and should be deleted.
-                logging.info("--- route not in spec, deleting in RT '%s': "
-                             "%s -> ... (%s, %s)" %
+                # The route isn't in the spec anymore and should be
+                # deleted.
+                logging.info("--- route not in spec, deleting in "
+                             "RT '%s': %s -> ... (%s, %s)" %
                              (rt.id, dcidr, inst_id, eni_id))
 
                 con.delete_route(route_table_id         = rt.id,
