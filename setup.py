@@ -52,7 +52,7 @@ setup(
     install_requires     = [
         'argparse==1.2.1',
         'boto==2.47.0',
-        'bottle==0.12.13',
+        'bottle==0.12.19',
         'netaddr==0.7.19',
         'wsgiref==0.1.2',
         'watchdog==0.8.3',
